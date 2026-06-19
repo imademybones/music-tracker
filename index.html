@@ -436,6 +436,22 @@
   .btn-action.danger:hover { border-color: var(--red); color: #c47272; }
   .btn-action.toggle-listened.active { border-color: var(--green); color: var(--green); }
 
+  .revisit-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--text-muted);
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 9px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+
+  .revisit-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+
   /* WAVEFORM DIVIDER */
   .wave-divider {
     display: flex;
@@ -732,6 +748,7 @@
         <option value="added-asc">Oldest Added</option>
         <option value="rating-desc">Highest Rated</option>
         <option value="artist-asc">Artist A–Z</option>
+        <option value="revisits-desc">Most Revisited</option>
       </select>
     </div>
 
@@ -809,6 +826,7 @@
       rating: formRating,
       notes: document.getElementById('fNotes').value.trim(),
       listened: document.getElementById('fListened').checked,
+      revisits: editingId ? (releases.find(r => r.id === editingId)?.revisits || 0) : 0,
       addedAt: editingId ? (releases.find(r => r.id === editingId)?.addedAt || Date.now()) : Date.now(),
       updatedAt: Date.now(),
     };
@@ -902,6 +920,7 @@
       if (sort === 'added-asc') return a.addedAt - b.addedAt;
       if (sort === 'rating-desc') return b.rating - a.rating;
       if (sort === 'artist-asc') return a.artist.localeCompare(b.artist);
+      if (sort === 'revisits-desc') return (b.revisits || 0) - (a.revisits || 0);
       if (sort === 'year-desc' || sort === 'year-asc') {
         const parseDate = d => { if (!d) return 0; const p = d.split('/'); return p.length === 3 ? parseInt(p[2]+p[1]+p[0]) : parseInt(d); };
         return parseDate(a.year) - parseDate(b.year);
@@ -949,6 +968,7 @@
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
             ${r.rating ? `<div class="card-rating">${ratingDots(r.rating)}</div>` : ''}
             <span class="card-listened-badge ${r.listened ? 'badge-yes' : 'badge-no'}">${r.listened ? 'Listened' : 'Not yet'}</span>
+            <button class="revisit-btn" onclick="addRevisit('${r.id}')" title="Log a revisit">↺ ${r.revisits || 0}</button>
           </div>
         </div>
         ${r.notes ? `<div class="card-notes">${esc(r.notes)}</div>` : ''}
@@ -1061,6 +1081,17 @@
     t.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ── Revisit ───────────────────────────────────────
+  function addRevisit(id) {
+    const r = releases.find(x => x.id === id);
+    if (!r) return;
+    r.revisits = (r.revisits || 0) + 1;
+    r.updatedAt = Date.now();
+    saveReleases();
+    renderList();
+    showToast('Revisit logged.');
   }
 
   // ── Util ───────────────────────────────────────────
