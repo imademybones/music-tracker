@@ -727,7 +727,7 @@
         <option>Other</option>
       </select>
       <select id="sortBy" onchange="renderList()">
-        <option value="year-desc">Release Date ↓</option>
+        <option value="year-asc">Release Date ↑</option>
         <option value="added-desc">Newest Added</option>
         <option value="added-asc">Oldest Added</option>
         <option value="rating-desc">Highest Rated</option>
@@ -902,9 +902,9 @@
       if (sort === 'added-asc') return a.addedAt - b.addedAt;
       if (sort === 'rating-desc') return b.rating - a.rating;
       if (sort === 'artist-asc') return a.artist.localeCompare(b.artist);
-      if (sort === 'year-desc') {
+      if (sort === 'year-desc' || sort === 'year-asc') {
         const parseDate = d => { if (!d) return 0; const p = d.split('/'); return p.length === 3 ? parseInt(p[2]+p[1]+p[0]) : parseInt(d); };
-        return parseDate(b.year) - parseDate(a.year);
+        return sort === 'year-asc' ? parseDate(b.year) - parseDate(a.year) : parseDate(a.year) - parseDate(b.year);
       }
       return 0;
     });
