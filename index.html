@@ -1124,6 +1124,37 @@
 
   /* ---- v6: inline two-click confirm (duplicate warning, remove) ---- */
   .btn-action.danger.confirming{ border-color: var(--red); color: #fff; background: var(--red); }
+
+  /* ---- v9: release-month section headers ---- */
+  .month-header{
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gold-dim);
+    padding: 6px 2px;
+    border-bottom: 1px solid var(--border);
+    margin-top: 14px;
+    margin-bottom: 2px;
+  }
+  .release-list > .month-header:first-child{ margin-top: 0; }
+  .month-count{
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+
+  /* ---- v9: Spotify link badge (exact album link, or search fallback) ---- */
+  a.spotify-badge{ text-decoration: none; cursor: pointer; transition: background 0.15s, color 0.15s; }
+  a.spotify-badge:hover{ background: rgba(90,138,106,0.28); }
+  .spotify-badge.search{ color: var(--text-dim); background: var(--surface-2); }
+  a.spotify-badge.search:hover{ color: var(--gold); }
 </style>
 </head>
 <body>
@@ -1472,6 +1503,7 @@
       addedAt: f['Added At'] || Date.now(),
       updatedAt: f['Updated At'] || Date.now(),
       spotifyAdded: !!f['Spotify Added'],
+      spotifyUrl: f['Spotify URL'] || '', // v9: exact album link, blank for manual/older entries
     };
   }
 
@@ -1489,6 +1521,7 @@
       'Added At': entry.addedAt,
       'Updated At': entry.updatedAt,
       'Spotify Added': !!entry.spotifyAdded,
+      'Spotify URL': entry.spotifyUrl || null, // v9
     };
   }
 
@@ -1588,6 +1621,9 @@
   // autofill Artist/Title/Release Date/Format/Genre from a result.
   let lastSpotifyResults = [];
   let filledFromSpotify = false;
+  // v9: exact album link (external_urls.spotify) captured alongside the
+  // autofill, saved to the "Spotify URL" Airtable field on create.
+  let spotifyUrlFromSearch = '';
 
   async function spotifySearch(){
     const q = document.getElementById('spotifySearchInput').value.trim();
@@ -1659,6 +1695,10 @@
     document.getElementById('fReleaseDate').value = spotifyDateToIso(album.release_date);
     document.getElementById('fFormat').value = formatFromSpotifyAlbumType(album.album_type, album.total_tracks);
 
+    // v9: keep the exact album link so the saved release can deep-link
+    // straight to Spotify instead of falling back to a search.
+    spotifyUrlFromSearch = (album.external_urls && album.external_urls.spotify) || '';
+
     // Genre isn't on the album object — look it up via the primary artist,
     // best-effort only (fine if it fails, genre just stays blank).
     const primaryArtistId = album.artists && album.artists[0] && album.artists[0].id;
@@ -1719,6 +1759,7 @@
       addedAt: existing ? existing.addedAt : Date.now(),
       updatedAt: Date.now(),
       spotifyAdded: existing ? !!existing.spotifyAdded : filledFromSpotify,
+      spotifyUrl: existing ? (existing.spotifyUrl || '') : spotifyUrlFromSearch, // v9: preserved on edit
     };
 
     const wasEditing = !!editingId;
@@ -1761,6 +1802,7 @@
     if (!r) return;
     editingId = id;
     filledFromSpotify = false;
+    spotifyUrlFromSearch = ''; // v9
     document.getElementById('fArtist').value = r.artist;
     document.getElementById('fTitle').value = r.title;
     document.getElementById('fGenre').value = r.genre;
@@ -1794,6 +1836,7 @@
     formRating = 0;
     updateFormRatingUI();
     filledFromSpotify = false;
+    spotifyUrlFromSearch = ''; // v9
   }
 
   async function performDeleteRelease(id) {
@@ -1990,6 +2033,19 @@
     `;
   }
 
+  // ---- v9: Spotify link per release ----
+  // Exact album link when we have one (captured via the Spotify-assisted
+  // add into the "Spotify URL" field); otherwise a best-effort Spotify
+  // search for artist + title, so every release gets a working link.
+  function spotifyLinkHtml(r){
+    if(r.spotifyUrl){
+      return `<a class="spotify-badge" href="${esc(r.spotifyUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open album in Spotify">◉ Spotify ↗</a>`;
+    }
+    const q = `${r.artist || ''} ${r.title || ''}`.trim();
+    if(!q) return '';
+    return `<a class="spotify-badge search" href="https://open.spotify.com/search/${encodeURIComponent(q)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Search for this on Spotify">⌕ Spotify</a>`;
+  }
+
   // Full card markup (rating, tags, notes, listened toggle, edit/•••remove
   // menu) — used inside the detail modal. Grid tiles render a stripped-down
   // version of this same release in renderList() below.
@@ -2000,7 +2056,7 @@
       r.year ? `<span class="meta-tag">${esc(formatReleaseDateDisplay(r.year))}</span>` : '',
       r.format ? `<span class="meta-tag format">${r.format}</span>` : '',
       r.genre ? r.genre.split(',').map(g => `<span class="meta-tag">${g.trim()}</span>`).join('') : '',
-      r.spotifyAdded ? `<span class="spotify-badge">◉ Spotify</span>` : '',
+      spotifyLinkHtml(r), // v9: clickable Spotify link replaces the static badge
     ].filter(Boolean).join('');
 
     return `
@@ -2063,6 +2119,18 @@
       </div>`;
   }
 
+  // ---- v9: release-month section headers ----
+  // Buckets a release by the month of its parsed Release Date. Legacy
+  // bare-year records normalize to 01/01, so they land in January of that
+  // year — consistent with how sorting and display already treat them.
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function releaseMonthGroup(r){
+    const d = parseReleaseDate(r.year);
+    if(!d) return { key: 'none', label: 'No release date', order: -1 };
+    const y = d.getFullYear(), m = d.getMonth() + 1;
+    return { key: `${y}-${String(m).padStart(2, '0')}`, label: `${MONTH_NAMES[m - 1]} ${y}`, order: y * 100 + m };
+  }
+
   function renderList() {
     const list = getFiltered();
     const container = document.getElementById('releaseList');
@@ -2074,7 +2142,28 @@
       return;
     }
 
-    container.innerHTML = list.map(r => viewMode === 'list' ? renderListRow(r) : renderGridTile(r)).join('');
+    // v9: group into release-month sections. The active sort still applies
+    // within each section (items keep getFiltered()'s order); sections run
+    // newest-first, except on Release Date ↑ where they run oldest-first to
+    // match. "No release date" always sits at the bottom.
+    const sort = document.getElementById('sortBy').value;
+    const groups = new Map();
+    list.forEach(r => {
+      const g = releaseMonthGroup(r);
+      if(!groups.has(g.key)) groups.set(g.key, { key: g.key, label: g.label, order: g.order, items: [] });
+      groups.get(g.key).items.push(r);
+    });
+    const ordered = [...groups.values()].sort((a, b) => {
+      if(a.key === 'none') return 1;
+      if(b.key === 'none') return -1;
+      return sort === 'year-asc' ? a.order - b.order : b.order - a.order;
+    });
+
+    const itemHtml = r => viewMode === 'list' ? renderListRow(r) : renderGridTile(r);
+    container.innerHTML = ordered.map(g =>
+      `<div class="month-header"><span>${esc(g.label)}</span><span class="month-count">${g.items.length}</span></div>`
+      + g.items.map(itemHtml).join('')
+    ).join('');
     renderModal();
   }
 
