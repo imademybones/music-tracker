@@ -442,52 +442,143 @@
   .release-card.status-unlistened { border-left: 2px solid var(--text-dim); }
   .release-card.status-listened { border-left: 2px solid var(--green); }
 
-  /* ---- v7: grid tile (list view) ---- */
+  /* ---- v8: grid tile — artwork background + bottom scrim overlay ---- */
   .release-tile {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 10px;
-    cursor: pointer;
     transition: border-color 0.15s;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
   }
   .release-tile:hover { border-color: var(--border-hover); }
-  .release-tile.status-upcoming { border-top: 3px solid var(--blue); }
-  .release-tile.status-unlistened { border-top: 3px solid var(--text-dim); }
-  .release-tile.status-listened { border-top: 3px solid var(--green); }
   .tile-cover {
+    position: absolute;
+    inset: 0;
     width: 100%;
-    aspect-ratio: 1 / 1;
+    height: 100%;
     object-fit: cover;
-    border-radius: 3px;
   }
   .tile-cover-placeholder {
+    position: absolute;
+    inset: 0;
     width: 100%;
-    aspect-ratio: 1 / 1;
-    border-radius: 3px;
+    height: 100%;
     background: var(--surface-2);
-    border: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 26px;
     color: var(--text-dim);
   }
+  .tile-status-dot {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.45);
+  }
+  .tile-status-dot.status-upcoming { background: var(--blue); }
+  .tile-status-dot.status-unlistened { background: var(--text-dim); }
+  .tile-status-dot.status-listened { background: var(--green); }
+  .tile-scrim {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 22px 10px 8px;
+    background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
+  }
   .tile-text { min-width: 0; }
   .tile-artist {
     font-family: var(--font-display);
     font-size: 12px;
     font-weight: 600;
-    color: var(--text);
+    color: #fff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .tile-title {
     font-size: 11px;
+    color: rgba(255,255,255,0.75);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---- v8: grid/list view toggle ---- */
+  .view-toggle {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px;
+  }
+  .view-toggle-btn {
+    background: none;
+    border: none;
+    border-radius: 2px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 5px 9px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .view-toggle-btn:hover { color: var(--text); }
+  .view-toggle-btn.active { background: var(--surface-2); color: var(--gold); }
+
+  /* ---- v8: compact list view (single-column rows) ---- */
+  .release-list.view-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .release-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .release-row:hover { border-color: var(--border-hover); }
+  .release-row-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .release-row-dot.status-upcoming { background: var(--blue); }
+  .release-row-dot.status-unlistened { background: var(--text-dim); }
+  .release-row-dot.status-listened { background: var(--green); }
+  .release-row-text {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .release-row-artist {
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .release-row-title {
+    font-size: 12px;
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -1171,9 +1262,15 @@
       </select>
     </div>
 
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;gap:6px;">
-      <button class="btn-action" onclick="importData()" title="Import a backup JSON file">↑ Import</button>
-      <button class="btn-action" onclick="exportData()" title="Download a backup JSON file">↓ Export</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:6px;flex-wrap:wrap;">
+      <div class="view-toggle" id="viewToggle">
+        <button class="view-toggle-btn" data-mode="grid" onclick="setViewMode('grid')" title="Grid view">▦</button>
+        <button class="view-toggle-btn" data-mode="list" onclick="setViewMode('list')" title="List view">☰</button>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn-action" onclick="importData()" title="Import a backup JSON file">↑ Import</button>
+        <button class="btn-action" onclick="exportData()" title="Download a backup JSON file">↓ Export</button>
+      </div>
     </div>
     <div class="release-list" id="releaseList"></div>
   </div>
@@ -1781,16 +1878,19 @@
     return html;
   }
 
+  // v8: candidates are unlistened AND already released — upcoming releases
+  // surface via the "Out This Friday" box / their own status badge instead,
+  // not the "queued to listen" hero.
   function renderHero(){
     const heroSlot = document.getElementById('heroSlot');
-    const unlistened = releases.filter(r => !r.listened);
-    if(unlistened.length === 0){
+    const candidates = releases.filter(r => releaseStatus(r) === 'unlistened');
+    if(candidates.length === 0){
       heroSlot.innerHTML = releases.length === 0
         ? ''
-        : '<div class="hero-empty">Everything logged has been marked listened — nothing queued up.</div>';
+        : '<div class="hero-empty">Nothing released and unheard right now — check back after the next drop.</div>';
       return;
     }
-    const next = [...unlistened].sort((a,b) => b.addedAt - a.addedAt)[0];
+    const next = [...candidates].sort((a,b) => b.addedAt - a.addedAt)[0];
     heroSlot.innerHTML = `
       <div class="hero-card">
         ${coverHtml(next, 'hero')}
@@ -1846,6 +1946,26 @@
   // Which release's detail modal is open lives in this JS variable — the
   // same render-from-scratch pattern as openOverflowId/pendingRemoveId.
   let openModalId = null;
+
+  // ---- v8: grid/list view mode ----
+  // Source of truth is this JS variable, persisted to localStorage; the
+  // toggle buttons and the release-list container's class are just a
+  // rendering of it, re-derived on every renderViewToggle()/renderList().
+  let viewMode = localStorage.getItem('musicTrackerViewMode') === 'list' ? 'list' : 'grid';
+
+  function setViewMode(mode){
+    if(mode !== 'grid' && mode !== 'list') return;
+    viewMode = mode;
+    localStorage.setItem('musicTrackerViewMode', mode);
+    renderViewToggle();
+    renderList();
+  }
+
+  function renderViewToggle(){
+    document.querySelectorAll('.view-toggle-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === viewMode);
+    });
+  }
 
   function openReleaseModal(id){
     openModalId = id;
@@ -1914,9 +2034,39 @@
       </div>`;
   }
 
+  // v8: grid tile — artwork background, bottom scrim, corner status dot.
+  function renderGridTile(r){
+    const status = releaseStatus(r);
+    return `
+      <div class="release-tile" onclick="openReleaseModal('${r.id}')">
+        ${coverHtml(r, 'tile')}
+        <div class="tile-status-dot status-${status}"></div>
+        <div class="tile-scrim">
+          <div class="tile-text">
+            <div class="tile-artist">${esc(r.artist)}</div>
+            ${r.title ? `<div class="tile-title">${esc(r.title)}</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // v8: compact list row — status dot + artist/title only, no cover.
+  function renderListRow(r){
+    const status = releaseStatus(r);
+    return `
+      <div class="release-row" onclick="openReleaseModal('${r.id}')">
+        <div class="release-row-dot status-${status}"></div>
+        <div class="release-row-text">
+          <span class="release-row-artist">${esc(r.artist)}</span>
+          ${r.title ? `<span class="release-row-title">${esc(r.title)}</span>` : ''}
+        </div>
+      </div>`;
+  }
+
   function renderList() {
     const list = getFiltered();
     const container = document.getElementById('releaseList');
+    container.className = 'release-list' + (viewMode === 'list' ? ' view-list' : '');
 
     if (list.length === 0) {
       container.innerHTML = `<div class="empty-state"><p>${releases.length === 0 ? 'No releases yet. Add one above.' : 'No matches.'}</p></div>`;
@@ -1924,17 +2074,7 @@
       return;
     }
 
-    container.innerHTML = list.map(r => {
-      const status = releaseStatus(r);
-      return `
-      <div class="release-tile status-${status}" onclick="openReleaseModal('${r.id}')">
-        ${coverHtml(r, 'tile')}
-        <div class="tile-text">
-          <div class="tile-artist">${esc(r.artist)}</div>
-          ${r.title ? `<div class="tile-title">${esc(r.title)}</div>` : ''}
-        </div>
-      </div>`;
-    }).join('');
+    container.innerHTML = list.map(r => viewMode === 'list' ? renderListRow(r) : renderGridTile(r)).join('');
     renderModal();
   }
 
@@ -2148,6 +2288,7 @@
   }
 
   // ── Init ───────────────────────────────────────────
+  renderViewToggle();
   loadReleases();
 </script>
 </body>
