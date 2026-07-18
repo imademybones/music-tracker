@@ -410,6 +410,7 @@
       const base64 = await fileToBase64(file);
       const res = await fetch(ATTACHMENT_UPLOAD_URL, {
         method: 'POST',
+        credentials: 'include', // v16: carries the Cloudflare Access session cookie cross-origin
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recordId: id,
@@ -571,6 +572,7 @@
     // Auth now happens inside the Worker — no token is attached client-side.
     const res = await fetch(url, {
       ...options,
+      credentials: 'include', // v16: carries the Cloudflare Access session cookie cross-origin
       headers: {
         'Content-Type': 'application/json',
         ...(options.headers || {})
@@ -739,7 +741,7 @@
     resultsEl.innerHTML = '<div class="spotify-status">Searching…</div>';
     try{
       const params = new URLSearchParams({ q, type: 'album', limit: '5' });
-      const res = await fetch(`${SPOTIFY_PROXY_URL}/v1/search?${params.toString()}`);
+      const res = await fetch(`${SPOTIFY_PROXY_URL}/v1/search?${params.toString()}`, { credentials: 'include' });
       if(!res.ok) throw new Error(`Spotify search error ${res.status}`);
       const data = await res.json();
       lastSpotifyResults = (data.albums && data.albums.items) || [];
@@ -791,7 +793,7 @@
     const primaryArtistId = album.artists && album.artists[0] && album.artists[0].id;
     if(primaryArtistId){
       try{
-        const res = await fetch(`${SPOTIFY_PROXY_URL}/v1/artists/${primaryArtistId}`);
+        const res = await fetch(`${SPOTIFY_PROXY_URL}/v1/artists/${primaryArtistId}`, { credentials: 'include' });
         if(res.ok){
           const artistData = await res.json();
           if(artistData.genres && artistData.genres.length){
