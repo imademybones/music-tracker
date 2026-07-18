@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A personal music release tracker: a single self-contained HTML file (`index.html`) with inline CSS and vanilla JS. No build step, no package manager, no framework, no test suite. It's served as a static file (e.g. GitHub Pages) directly from `index.html`.
+A personal music release tracker: `index.html` (markup + inline JS module) plus `styles.css`, with pure helper logic factored out to `lib/pure.js`. No build step, no package manager, no framework. It's served as a static file (e.g. GitHub Pages) directly from `index.html`.
 
 ## Development
 
-There is no build/lint/test tooling in this repo. To work on it:
+There is no build/lint tooling in this repo, but `lib/pure.js` has a `node:test` suite (`lib/pure.test.js`) covering date/status/Spotify-parsing helpers, run via `node --test lib/pure.test.js`. A GitHub Actions workflow (`.github/workflows/test.yml`) runs it on every push/PR to `main` — non-blocking (no branch protection), so it surfaces regressions as a status check rather than gating the deploy. To work on it:
 
 - Open `index.html` directly in a browser, or serve it locally (`python3 -m http.server` from the repo root) and visit it — either works since there's no build step.
-- All changes happen in the one file: styles in the `<style>` block, markup in `<body>`, logic in the `<script>` block at the end.
-- Verify changes by exercising the UI in a browser (add/edit/delete a release, search Spotify, toggle listened, check Stats tab) — there are no automated tests to lean on.
+- Markup lives in `index.html`'s `<body>`, logic in its `<script type="module">` block, styles in `styles.css`, pure/testable logic in `lib/pure.js`.
+- Verify changes by exercising the UI in a browser (add/edit/delete a release, search Spotify, toggle listened, check Stats tab) — there's no UI test automation, only the pure-function suite above.
+- Deploy is a direct push to `main` (GitHub Pages redeploys automatically); there's no branch protection or staging environment. Rollback is an ordinary `git revert` (or GitHub's "Revert this commit" button) — Pages redeploys the reverted `index.html` within about a minute.
 
 ## Versioning convention
 

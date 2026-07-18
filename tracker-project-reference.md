@@ -35,6 +35,41 @@ Routes:
   for the manual artwork file-upload path (added v10)
 
 CORS is restricted to `Access-Control-Allow-Origin: https://imademybones.github.io`.
+This Origin check is spoofable outside a browser — see Cloudflare Access below
+for the real access-control layer.
+
+## Cloudflare Access (go-live gate)
+
+Not yet set up. Puts a login gate (Google, GitHub, or email one-time-code) in
+front of the whole zone — Pages and Worker both — entirely via dashboard
+config, with **zero changes to `index.html` or the Worker code**. This is the
+one access-control layer worth trusting; the CORS Origin check above is not.
+
+Setup steps (do before sharing the live URL beyond solo use):
+
+1. In the Cloudflare dashboard, go to **Zero Trust** → **Access** → **Applications**
+   (first visit prompts you to pick a team name — any name is fine, it's just
+   a URL slug for the login page).
+2. **Add an application** → **Self-hosted**.
+3. Application domain: the GitHub Pages domain, `imademybones.github.io`
+   (path `/music-tracker/*` if you want to scope it to just this app rather
+   than the whole Pages account).
+4. Add a second self-hosted application for the Worker's domain,
+   `music-tracker.stephen-nolan85.workers.dev`, so both the static site and
+   the API proxy are gated — a login on the Pages site alone wouldn't stop
+   someone hitting the Worker URL directly.
+5. **Policies**: add an Allow policy with **Include** → **Emails** → your own
+   email (and anyone else's you want to trust). This is the actual
+   access-control list.
+6. **Identity providers**: Google, GitHub, or "One-time PIN" (email code, no
+   third-party login needed) — pick whichever is least friction for who
+   you're sharing with.
+7. Save. Visiting either domain now redirects to a Cloudflare-hosted login
+   page first; only allowed identities get through to the app / Worker.
+
+No code or CORS changes needed — this sits in front of both origins at the
+network edge. Update this doc once it's actually configured (date + which
+IdP chosen).
 
 ## Deploy
 

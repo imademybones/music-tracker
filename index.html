@@ -41,7 +41,7 @@
     <div id="heroSlot"></div>
 
     <div class="add-form collapsed" id="addFormDisclosure">
-      <div class="disclosure-head" onclick="toggleAddForm()">
+      <div class="disclosure-head" tabindex="0" role="button" aria-expanded="false" aria-controls="addFormDisclosure" onclick="toggleAddForm()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleAddForm();}">
         <div class="form-title" id="formLabel" style="margin-bottom:0;">+ Add Release</div>
         <span class="disclosure-chevron">▾</span>
       </div>
@@ -92,12 +92,12 @@
       <div class="form-row">
         <div>
           <label>Rating</label>
-          <div class="rating-blocks" id="formRating">
-            <div class="rating-block" onclick="setFormRating(1)"></div>
-            <div class="rating-block" onclick="setFormRating(2)"></div>
-            <div class="rating-block" onclick="setFormRating(3)"></div>
-            <div class="rating-block" onclick="setFormRating(4)"></div>
-            <div class="rating-block" onclick="setFormRating(5)"></div>
+          <div class="rating-blocks" id="formRating" role="radiogroup" aria-label="Rating">
+            <div class="rating-block" tabindex="0" role="radio" aria-checked="false" aria-label="1 star" onclick="setFormRating(1)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setFormRating(1);}"></div>
+            <div class="rating-block" tabindex="0" role="radio" aria-checked="false" aria-label="2 stars" onclick="setFormRating(2)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setFormRating(2);}"></div>
+            <div class="rating-block" tabindex="0" role="radio" aria-checked="false" aria-label="3 stars" onclick="setFormRating(3)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setFormRating(3);}"></div>
+            <div class="rating-block" tabindex="0" role="radio" aria-checked="false" aria-label="4 stars" onclick="setFormRating(4)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setFormRating(4);}"></div>
+            <div class="rating-block" tabindex="0" role="radio" aria-checked="false" aria-label="5 stars" onclick="setFormRating(5)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setFormRating(5);}"></div>
           </div>
         </div>
       </div>
@@ -172,8 +172,8 @@
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:6px;flex-wrap:wrap;">
       <div class="view-toggle" id="viewToggle">
-        <button class="view-toggle-btn" data-mode="grid" onclick="setViewMode('grid')" title="Grid view">▦</button>
-        <button class="view-toggle-btn" data-mode="list" onclick="setViewMode('list')" title="List view">☰</button>
+        <button class="view-toggle-btn" data-mode="grid" onclick="setViewMode('grid')" title="Grid view" aria-label="Grid view">▦</button>
+        <button class="view-toggle-btn" data-mode="list" onclick="setViewMode('list')" title="List view" aria-label="List view">☰</button>
       </div>
       <div style="display:flex;gap:6px;">
         <button class="btn-action" onclick="importData()" title="Import a backup JSON file">↑ Import</button>
@@ -214,7 +214,9 @@
   // ── State ──────────────────────────────────────────
   // ---- v6: collapsible add-form ----
   function toggleAddForm(){
-    document.getElementById('addFormDisclosure').classList.toggle('collapsed');
+    const el = document.getElementById('addFormDisclosure');
+    const collapsed = el.classList.toggle('collapsed');
+    document.querySelector('#addFormDisclosure .disclosure-head').setAttribute('aria-expanded', String(!collapsed));
   }
 
   // ---- v6: mobile filter sheet ----
@@ -342,12 +344,14 @@
     overlay.onclick = (e) => { if(e.target === overlay) closeArtworkModal(); };
     document.getElementById('artworkRemoveBtn').onclick = () => removeArtworkOverride(id);
     document.getElementById('artworkSaveBtn').onclick = () => saveArtworkFromModal(id);
+    focusModal(overlay);
   }
 
   function closeArtworkModal(){
     const overlay = document.getElementById('artworkModalOverlay');
     if(overlay) document.body.removeChild(overlay);
     artworkModalId = null;
+    restoreModalFocus();
   }
 
   function setArtworkModalStatus(msg){
@@ -523,7 +527,7 @@
     const [imgClass, placeholderClass] = COVER_VARIANT_CLASSES[variant] || COVER_VARIANT_CLASSES.card;
     const editable = EDITABLE_COVER_VARIANTS.includes(variant);
     const editBtn = editable
-      ? `<button class="cover-edit-btn ${variant}" onclick="event.stopPropagation();openArtworkModal('${release.id}')" title="Edit artwork">✎</button>`
+      ? `<button class="cover-edit-btn ${variant}" onclick="event.stopPropagation();openArtworkModal('${release.id}')" title="Edit artwork" aria-label="Edit artwork">✎</button>`
       : '';
     const wrap = (inner) => editable ? `<div class="cover-wrap ${variant}">${inner}${editBtn}</div>` : inner;
 
@@ -690,7 +694,7 @@
     document.getElementById('offlineBannerSlot').innerHTML = `
       <div class="offline-banner">
         <span>Offline — showing your collection as of ${esc(when)}.</span>
-        <button class="dismiss" onclick="hideOfflineBanner()" title="Dismiss">✕</button>
+        <button class="dismiss" onclick="hideOfflineBanner()" title="Dismiss" aria-label="Dismiss">✕</button>
       </div>
     `;
   }
@@ -710,6 +714,7 @@
     const blocks = document.querySelectorAll('#formRating .rating-block');
     blocks.forEach((b, i) => {
       b.classList.toggle('filled', i < formRating);
+      b.setAttribute('aria-checked', String(i === formRating - 1));
     });
   }
 
@@ -1102,7 +1107,7 @@
     }
     const next = [...candidates].sort((a,b) => b.addedAt - a.addedAt)[0];
     heroSlot.innerHTML = `
-      <div class="hero-card" onclick="openReleaseModal('${next.id}')">
+      <div class="hero-card" tabindex="0" role="button" aria-label="Open ${esc(next.artist)}${next.title ? ' — ' + esc(next.title) : ''}" onclick="openReleaseModal('${next.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${next.id}');}">
         ${coverHtml(next, 'hero')}
         <div class="hero-text">
           <div class="hero-tag">Queued to listen</div>
@@ -1145,7 +1150,7 @@
         <div class="friday-tag">${esc(label)}</div>
         <div class="friday-list">
           ${matches.map(r => `
-            <div class="friday-item" onclick="openReleaseModal('${r.id}')">
+            <div class="friday-item" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
               ${coverHtml(r, 'friday')}
               <div class="friday-item-text">
                 <div class="friday-item-artist">${esc(r.artist)}</div>
@@ -1183,13 +1188,70 @@
     });
   }
 
+  // ---- v14: modal accessibility — focus trap + Escape-to-close ----
+  // Shared by all three overlay modals (release detail, artwork editor,
+  // genre gallery). renderModal() replaces #modalSlot's innerHTML wholesale
+  // on every state change (mark listened, overflow menu, etc.), so a
+  // listener attached to a specific modal node wouldn't survive a re-render
+  // — this single delegated listener re-queries the live DOM on every
+  // keypress instead. Checked highest z-index first, since artwork modal
+  // (z-index 300) can open on top of the release modal (150), which sits
+  // above the genre gallery (140).
+  let modalFocusReturnEl = null;
+  function activeModalOverlay(){
+    return document.getElementById('artworkModalOverlay')
+      || document.querySelector('#modalSlot .modal-overlay')
+      || document.getElementById('genreGalleryOverlay');
+  }
+  function focusableIn(el){
+    return Array.from(el.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+      .filter(n => !n.disabled && n.offsetParent !== null);
+  }
+  function closeActiveModal(overlay){
+    if(overlay.id === 'artworkModalOverlay') closeArtworkModal();
+    else if(overlay.id === 'genreGalleryOverlay') closeGenreGallery();
+    else closeReleaseModal();
+  }
+  document.addEventListener('keydown', function(e){
+    const overlay = activeModalOverlay();
+    if(!overlay) return;
+    if(e.key === 'Escape'){
+      e.preventDefault();
+      closeActiveModal(overlay);
+      return;
+    }
+    if(e.key !== 'Tab') return;
+    const items = focusableIn(overlay);
+    if(!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if(e.shiftKey && document.activeElement === first){
+      e.preventDefault(); last.focus();
+    } else if(!e.shiftKey && document.activeElement === last){
+      e.preventDefault(); first.focus();
+    }
+  });
+  function focusModal(overlay){
+    modalFocusReturnEl = document.activeElement;
+    const items = focusableIn(overlay);
+    if(items.length) items[0].focus();
+  }
+  function restoreModalFocus(){
+    if(modalFocusReturnEl && document.body.contains(modalFocusReturnEl) && modalFocusReturnEl.focus){
+      modalFocusReturnEl.focus();
+    }
+    modalFocusReturnEl = null;
+  }
+
   function openReleaseModal(id){
     openModalId = id;
     renderModal();
+    const overlay = document.querySelector('#modalSlot .modal-overlay');
+    if(overlay) focusModal(overlay);
   }
   function closeReleaseModal(){
     openModalId = null;
     renderModal();
+    restoreModalFocus();
   }
   function renderModal(){
     const slot = document.getElementById('modalSlot');
@@ -1199,7 +1261,7 @@
     slot.innerHTML = `
       <div class="modal-overlay" onclick="if(event.target===this) closeReleaseModal()">
         <div class="modal-shell">
-          <button class="modal-close" onclick="closeReleaseModal()" title="Close">✕</button>
+          <button class="modal-close" onclick="closeReleaseModal()" title="Close" aria-label="Close">✕</button>
           <div class="modal-box">
             ${renderCardMarkup(r)}
           </div>
@@ -1248,13 +1310,13 @@
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
             ${r.rating ? `<div class="card-rating">${ratingDots(r.rating)}</div>` : ''}
             <span class="card-listened-badge ${badge.cls}">${badge.text}</span>
-            <button class="revisit-btn" onclick="addRevisit('${r.id}')" title="Log a revisit">↺ ${r.revisits || 0}</button>
+            <button class="revisit-btn" onclick="addRevisit('${r.id}')" title="Log a revisit" aria-label="Log a revisit">↺ ${r.revisits || 0}</button>
           </div>
         </div>
         ${r.notes ? `<div class="card-notes">${esc(r.notes)}</div>` : ''}
         <div class="card-actions">
           <button class="btn-action toggle-listened${r.listened ? ' active' : ''}" onclick="toggleListened('${r.id}')">${r.listened ? '✓ Listened' : 'Mark Listened'}</button>
-          <button class="btn-overflow" onclick="toggleOverflowMenu('${r.id}')" title="More actions">•••</button>
+          <button class="btn-overflow" onclick="toggleOverflowMenu('${r.id}')" title="More actions" aria-label="More actions">•••</button>
           <div class="overflow-menu ${openOverflowId === r.id ? 'open' : ''}">
             <button onclick="editRelease('${r.id}')">✎ Edit</button>
             <button onclick="openArtworkModal('${r.id}')">🖼 Artwork</button>
@@ -1270,7 +1332,7 @@
   function renderGridTile(r){
     const status = releaseStatus(r);
     return `
-      <div class="release-tile" onclick="openReleaseModal('${r.id}')">
+      <div class="release-tile" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
         ${coverHtml(r, 'tile')}
         <div class="tile-status-dot status-${status}"></div>
         <div class="tile-scrim">
@@ -1286,7 +1348,7 @@
   function renderListRow(r){
     const status = releaseStatus(r);
     return `
-      <div class="release-row" onclick="openReleaseModal('${r.id}')">
+      <div class="release-row" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
         <div class="release-row-dot status-${status}"></div>
         <div class="release-row-text">
           <span class="release-row-artist">${esc(r.artist)}</span>
@@ -1442,15 +1504,17 @@
       </div>
       <div class="release-list">${matches.map(renderGridTile).join('')}</div>
     `;
-    shell.innerHTML = `<button class="modal-close" onclick="closeGenreGallery()" title="Close">✕</button>`;
+    shell.innerHTML = `<button class="modal-close" onclick="closeGenreGallery()" title="Close" aria-label="Close">✕</button>`;
     shell.appendChild(box);
     overlay.appendChild(shell);
     document.body.appendChild(overlay);
+    focusModal(overlay);
   }
 
   function closeGenreGallery(){
     const overlay = document.getElementById('genreGalleryOverlay');
     if(overlay) document.body.removeChild(overlay);
+    restoreModalFocus();
   }
 
   // ── Header Stats ───────────────────────────────────

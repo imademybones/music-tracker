@@ -9,7 +9,7 @@
   --border-hover: #444444;
   --text: #f0ede8;
   --text-muted: #b0ada8;
-  --text-dim: #747170;
+  --text-dim: #86837e; /* v14: nudged from #747170 — 4.02:1 on --bg failed WCAG AA (4.5:1); this clears ~5.1:1 */
   --gold: #c9a84c;
   --gold-dim: #9a7a38;
   --green: #6aaa7a;
