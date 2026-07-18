@@ -1269,7 +1269,8 @@
       <div class="form-row three">
         <div>
           <label for="fGenre">Genre / Tag</label>
-          <input type="text" id="fGenre" placeholder="e.g. ambient, drone, metal">
+          <input type="text" id="fGenre" placeholder="e.g. ambient, drone, metal" list="genreList">
+          <datalist id="genreList"></datalist>
         </div>
         <div>
           <label for="fReleaseDate">Release Date</label>
@@ -1330,7 +1331,7 @@
     </div>
     <div class="filter-bar" id="filterBar">
       <span class="filter-label">Filter:</span>
-      <input type="text" id="searchInput" placeholder="Artist or title…" oninput="renderList(); updateFilterSummary();">
+      <input type="text" id="searchInput" placeholder="Artist, title, or genre…" oninput="renderList(); updateFilterSummary();">
       <select id="filterListened" onchange="renderList(); updateFilterSummary();">
         <option value="">All</option>
         <option value="yes">Listened</option>
@@ -1345,6 +1346,20 @@
         <option>Mixtape</option>
         <option>Demo</option>
         <option>Other</option>
+      </select>
+      <select id="filterGenre" onchange="renderList(); updateFilterSummary();">
+        <option value="">Any Genre</option>
+      </select>
+      <select id="filterDecade" onchange="renderList(); updateFilterSummary();">
+        <option value="">Any Decade</option>
+      </select>
+      <select id="filterRating" onchange="renderList(); updateFilterSummary();">
+        <option value="">Any Rating</option>
+        <option value="5">5★</option>
+        <option value="4">4★ and up</option>
+        <option value="3">3★ and up</option>
+        <option value="2">2★ and up</option>
+        <option value="1">1★ and up</option>
       </select>
       <select id="sortBy" onchange="renderList()">
         <option value="year-asc">Release Date ↑</option>
@@ -1381,7 +1396,23 @@
 <div class="toast" id="toast"></div>
 <div id="modalSlot"></div>
 
-<script>
+<script type="module">
+  // v13: pure date/status/Spotify-parsing helpers now live in lib/pure.js
+  // (see node:test suite at lib/pure.test.js) — importing them here means
+  // this script must run as a module. Everything below is otherwise
+  // unchanged; see the window-exposure block near the bottom, which is the
+  // one adjustment modules require for inline onclick="..." handlers to
+  // keep resolving these functions.
+  import {
+    normalizeToIso,
+    parseReleaseDate,
+    formatReleaseDateDisplay,
+    releaseStatus,
+    coverKey,
+    spotifyDateToIso,
+    formatFromSpotifyAlbumType,
+  } from './lib/pure.js';
+
   // ── State ──────────────────────────────────────────
   // ---- v6: collapsible add-form ----
   function toggleAddForm(){
@@ -1401,7 +1432,10 @@
     const q = document.getElementById('searchInput').value.trim();
     const fl = document.getElementById('filterListened').value;
     const ff = document.getElementById('filterFormat').value;
-    const active = [q ? 1 : 0, fl ? 1 : 0, ff ? 1 : 0].reduce((a,b) => a+b, 0);
+    const fg = document.getElementById('filterGenre').value;
+    const fd = document.getElementById('filterDecade').value;
+    const fr = document.getElementById('filterRating').value;
+    const active = [q, fl, ff, fg, fd, fr].filter(Boolean).length;
     summary.textContent = active > 0 ? `${active} active` : '';
   }
 
@@ -1633,11 +1667,8 @@
   // Value is an artwork URL once resolved, or null if a lookup found nothing.
   const coverCache = {};
 
-  function coverKey(artist, title){
-    return (artist || '').trim().toLowerCase() + '|||' + (title || '').trim().toLowerCase();
-  }
-
-  async function fetchCover(artist, title){
+  async function fetchCover(release){
+    const { artist, title, id } = release;
     const key = coverKey(artist, title);
     if(key in coverCache) return coverCache[key];
     coverCache[key] = undefined; // mark in-flight
@@ -1653,10 +1684,27 @@
     }catch(e){
       coverCache[key] = null;
     }
+    // v13: this only runs when there was no persisted "Cover Cache URL" yet
+    // (coverHtml checks that before ever calling fetchCover) — write the
+    // resolved URL back so future sessions/devices skip the iTunes lookup.
+    if(coverCache[key] && id) persistCoverCacheUrl(id, coverCache[key]);
     renderFriday();
     renderHero();
     renderList();
     return coverCache[key];
+  }
+
+  // Best-effort, never blocks rendering — same pattern as the artwork-override
+  // PATCH writes above. Updates the in-memory release too, so a re-render
+  // (e.g. after "Remove override") reads the persisted URL immediately.
+  function persistCoverCacheUrl(id, url){
+    airtableRequest(API_URL, {
+      method: 'PATCH',
+      body: JSON.stringify({ records: [{ id, fields: { 'Cover Cache URL': url } }] })
+    }).then(() => {
+      const idx = releases.findIndex(r => r.id === id);
+      if(idx !== -1) releases[idx].coverCacheUrl = url;
+    }).catch(e => console.error('Cover cache persist failed:', e));
   }
 
   // Returns cover HTML for a release, kicking off a background lookup the
@@ -1685,10 +1733,16 @@
       return wrap(`<img class="${imgClass}" src="${release.coverOverride}" alt="" loading="lazy">`);
     }
 
+    // v13: persisted auto-lookup — set once fetchCover resolves successfully,
+    // read on every subsequent load (any device) with no iTunes call at all.
+    if(release.coverCacheUrl){
+      return wrap(`<img class="${imgClass}" src="${release.coverCacheUrl}" alt="" loading="lazy">`);
+    }
+
     const key = coverKey(release.artist, release.title);
     const cached = coverCache[key];
     if(cached === undefined){
-      if(!(key in coverCache)) fetchCover(release.artist, release.title);
+      if(!(key in coverCache)) fetchCover(release);
       return wrap(`<div class="${placeholderClass}">🎵</div>`);
     }
     if(!cached) return wrap(`<div class="${placeholderClass}">🎵</div>`);
@@ -1745,6 +1799,7 @@
       spotifyAdded: !!f['Spotify Added'],
       spotifyUrl: f['Spotify URL'] || '', // v9: exact album link, blank for manual/older entries
       coverOverride: (f['Cover Override'] && f['Cover Override'][0] && f['Cover Override'][0].url) || null, // v10
+      coverCacheUrl: f['Cover Cache URL'] || '', // v13: persisted auto-resolved iTunes lookup
     };
   }
 
@@ -1771,44 +1826,8 @@
   // records may still hold the legacy dd/mm/yyyy or bare-year strings that
   // v6's text field and Spotify autofill used to write — these helpers
   // accept both so existing entries keep displaying/sorting correctly.
-  function normalizeToIso(dateStr){
-    if(!dateStr) return '';
-    if(/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
-    const dm = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if(dm) return `${dm[3]}-${dm[2]}-${dm[1]}`;
-    const ym = dateStr.match(/^(\d{4})$/);
-    if(ym) return `${ym[1]}-01-01`;
-    return '';
-  }
-
-  function parseReleaseDate(dateStr){
-    const iso = normalizeToIso(dateStr);
-    if(!iso) return null;
-    const [y, m, d] = iso.split('-').map(Number);
-    if(!y || !m || !d) return null;
-    return new Date(y, m - 1, d);
-  }
-
-  function formatReleaseDateDisplay(dateStr){
-    const d = parseReleaseDate(dateStr);
-    if(!d) return dateStr || '';
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    return `${day}/${month}/${d.getFullYear()}`;
-  }
-
-  // Status: listened always wins; otherwise upcoming vs already-released
-  // is decided by comparing the parsed Release Date to today.
-  function releaseStatus(r){
-    if(r.listened) return 'listened';
-    const d = parseReleaseDate(r.year);
-    if(d){
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if(d.getTime() > today.getTime()) return 'upcoming';
-    }
-    return 'unlistened';
-  }
+  // (v13: normalizeToIso/parseReleaseDate/formatReleaseDateDisplay/releaseStatus
+  // now live in lib/pure.js, imported at the top of this script.)
 
   function releaseStatusBadge(status){
     if(status === 'listened') return { cls: 'badge-listened', text: 'Listened' };
@@ -1835,6 +1854,7 @@
       container.innerHTML = '<div class="empty-state"><p>Could not load your collection — check the connection and reload.</p></div>';
       return;
     }
+    renderGenreFilters();
     renderFriday();
     renderHero();
     renderList();
@@ -1906,25 +1926,8 @@
     }
   }
 
-  function formatFromSpotifyAlbumType(albumType, totalTracks){
-    if(albumType === 'single') return (totalTracks && totalTracks > 1) ? 'EP' : 'Single';
-    if(albumType === 'compilation') return 'Compilation';
-    if(albumType === 'album') return 'LP';
-    return '';
-  }
-
-  // Converts Spotify's release_date (which may be a bare year, YYYY-MM, or
-  // full YYYY-MM-DD depending on precision) into an ISO YYYY-MM-DD the
-  // native date input can accept, approximating month/day as 01 when
-  // Spotify's precision is coarser than a full date.
-  function spotifyDateToIso(releaseDate){
-    if(!releaseDate) return '';
-    const parts = releaseDate.split('-');
-    if(parts.length === 3) return releaseDate;
-    if(parts.length === 2) return `${releaseDate}-01`;
-    if(parts.length === 1) return `${releaseDate}-01-01`;
-    return '';
-  }
+  // (v13: formatFromSpotifyAlbumType/spotifyDateToIso now live in lib/pure.js,
+  // imported at the top of this script.)
 
   async function applySpotifyResult(index){
     const album = lastSpotifyResults[index];
@@ -1990,7 +1993,7 @@
       id: editingId || null,
       artist,
       title,
-      genre: document.getElementById('fGenre').value.trim(),
+      genre: normalizeGenreString(document.getElementById('fGenre').value),
       year: document.getElementById('fReleaseDate').value,
       format: document.getElementById('fFormat').value,
       rating: formRating,
@@ -2028,6 +2031,7 @@
 
     editingId = null;
     clearForm();
+    renderGenreFilters();
     renderFriday();
     renderHero();
     renderList();
@@ -2091,6 +2095,7 @@
     }
     closeOverflowMenu();
     if(openModalId === id) openModalId = null;
+    renderGenreFilters();
     renderFriday();
     renderHero();
     renderList();
@@ -2121,18 +2126,99 @@
     updateHeaderStats();
   }
 
+  // ── Genre taxonomy (v13) ───────────────────────────
+  // Trims + collapses whitespace on each comma-separated tag. Doesn't
+  // lowercase or reject unrecognized tags — this is a personal tool, not a
+  // controlled vocabulary, so autocomplete + light normalization is the
+  // whole strategy (see brief: avoid fighting the free-text Spotify autofill).
+  function normalizeGenreString(str){
+    if(!str) return '';
+    return str.split(',').map(g => g.trim().replace(/\s+/g, ' ')).filter(Boolean).join(', ');
+  }
+
+  // Distinct genre tags already in use, case preserved (first occurrence
+  // wins), keyed by lowercase so callers can dedupe/match case-insensitively.
+  // Shared by the datalist autocomplete and the genre filter dropdown so
+  // they can't drift out of sync with each other.
+  function collectGenreTags(){
+    const seen = new Map();
+    releases.forEach(r => {
+      if(!r.genre) return;
+      r.genre.split(',').forEach(g => {
+        const trimmed = g.trim();
+        if(!trimmed) return;
+        const key = trimmed.toLowerCase();
+        if(!seen.has(key)) seen.set(key, trimmed);
+      });
+    });
+    return seen;
+  }
+
+  // Decades that actually have a release (only show non-empty options).
+  function collectDecades(){
+    const set = new Set();
+    releases.forEach(r => {
+      const d = parseReleaseDate(r.year);
+      if(d) set.add(Math.floor(d.getFullYear() / 10) * 10);
+    });
+    return [...set].sort((a, b) => b - a);
+  }
+
+  // Repopulates the genre datalist + genre/decade filter dropdowns from the
+  // current `releases` — called anywhere releases are added/removed/edited,
+  // same as the other render*() functions. Preserves the current filter
+  // selection across the rebuild.
+  function renderGenreFilters(){
+    const tags = [...collectGenreTags().entries()].sort((a, b) => a[1].localeCompare(b[1]));
+
+    const datalist = document.getElementById('genreList');
+    if(datalist) datalist.innerHTML = tags.map(([, label]) => `<option value="${esc(label)}"></option>`).join('');
+
+    const genreSelect = document.getElementById('filterGenre');
+    if(genreSelect){
+      const current = genreSelect.value;
+      genreSelect.innerHTML = '<option value="">Any Genre</option>'
+        + tags.map(([key, label]) => `<option value="${esc(key)}">${esc(label)}</option>`).join('');
+      genreSelect.value = tags.some(([key]) => key === current) ? current : '';
+    }
+
+    const decadeSelect = document.getElementById('filterDecade');
+    if(decadeSelect){
+      const current = decadeSelect.value;
+      const decades = collectDecades();
+      decadeSelect.innerHTML = '<option value="">Any Decade</option>'
+        + decades.map(d => `<option value="${d}">${d}s</option>`).join('');
+      decadeSelect.value = decades.some(d => String(d) === current) ? current : '';
+    }
+  }
+
+  // Diacritic-insensitive, case-insensitive comparison (e.g. "Sigur Ros"
+  // matches "Sigur Rós") — cheap normalization, no library needed.
+  function normalizeForSearch(str){
+    return (str || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  }
+
   // ── Render ─────────────────────────────────────────
   function getFiltered() {
-    const q = document.getElementById('searchInput').value.toLowerCase();
+    const q = normalizeForSearch(document.getElementById('searchInput').value.trim());
     const fl = document.getElementById('filterListened').value;
     const ff = document.getElementById('filterFormat').value;
+    const fg = document.getElementById('filterGenre').value;
+    const fd = document.getElementById('filterDecade').value;
+    const fr = document.getElementById('filterRating').value;
     const sort = document.getElementById('sortBy').value;
 
     let list = releases.filter(r => {
-      if (q && !r.artist.toLowerCase().includes(q) && !r.title.toLowerCase().includes(q) && !r.genre.toLowerCase().includes(q)) return false;
+      if (q && !normalizeForSearch(r.artist).includes(q) && !normalizeForSearch(r.title).includes(q) && !normalizeForSearch(r.genre).includes(q)) return false;
       if (fl === 'yes' && !r.listened) return false;
       if (fl === 'no' && r.listened) return false;
       if (ff && r.format !== ff) return false;
+      if (fg && !(r.genre && r.genre.split(',').some(g => g.trim().toLowerCase() === fg))) return false;
+      if (fd) {
+        const d = parseReleaseDate(r.year);
+        if (!d || String(Math.floor(d.getFullYear() / 10) * 10) !== fd) return false;
+      }
+      if (fr && r.rating < Number(fr)) return false;
       return true;
     });
 
@@ -2645,6 +2731,7 @@
             imported += chunk.length;
           }
 
+          renderGenreFilters();
           renderFriday();
           renderHero();
           renderList();
@@ -2659,6 +2746,20 @@
     };
     input.click();
   }
+
+  // v13: module scripts don't leak top-level declarations onto `window`,
+  // but the markup above (including template strings rendered into
+  // innerHTML) calls these by name from inline onclick/onchange/oninput
+  // attributes, which resolve identifiers against the global object —
+  // so anything invoked that way has to be attached here explicitly.
+  Object.assign(window, {
+    addRevisit, applySpotifyResult, cancelEdit, clearForm, closeGenreGallery,
+    closeReleaseModal, editRelease, exportData, importData, openArtworkModal,
+    openGenreGallery, openReleaseModal, renderList, requestDeleteRelease,
+    saveRelease, setFormRating, setViewMode, showTab, spotifySearch,
+    toggleAddForm, toggleFilterPanel, toggleListened, toggleOverflowMenu,
+    updateFilterSummary,
+  });
 
   // ── Init ───────────────────────────────────────────
   renderViewToggle();
