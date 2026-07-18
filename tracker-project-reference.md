@@ -40,36 +40,61 @@ for the real access-control layer.
 
 ## Cloudflare Access (go-live gate)
 
-Not yet set up. Puts a login gate (Google, GitHub, or email one-time-code) in
-front of the whole zone — Pages and Worker both — entirely via dashboard
-config, with **zero changes to `index.html` or the Worker code**. This is the
-one access-control layer worth trusting; the CORS Origin check above is not.
+**Status: in progress, 2026-07-19.** Worker-only scope chosen — the static
+page on GitHub Pages can't be gated by Access (Access only intercepts traffic
+through domains Cloudflare's edge actually proxies; `imademybones.github.io`
+never touches Cloudflare, so it wasn't even selectable as an Application
+domain). The page shell stays publicly loadable; the Worker — the part that
+actually touches Airtable — is the one gated. Turned out **not** to be a
+zero-code-change layer as originally scoped; see below.
 
-Setup steps (do before sharing the live URL beyond solo use):
+Setup so far:
 
-1. In the Cloudflare dashboard, go to **Zero Trust** → **Access** → **Applications**
-   (first visit prompts you to pick a team name — any name is fine, it's just
-   a URL slug for the login page).
-2. **Add an application** → **Self-hosted**.
-3. Application domain: the GitHub Pages domain, `imademybones.github.io`
-   (path `/music-tracker/*` if you want to scope it to just this app rather
-   than the whole Pages account).
-4. Add a second self-hosted application for the Worker's domain,
-   `music-tracker.stephen-nolan85.workers.dev`, so both the static site and
-   the API proxy are gated — a login on the Pages site alone wouldn't stop
-   someone hitting the Worker URL directly.
-5. **Policies**: add an Allow policy with **Include** → **Emails** → your own
-   email (and anyone else's you want to trust). This is the actual
-   access-control list.
-6. **Identity providers**: Google, GitHub, or "One-time PIN" (email code, no
-   third-party login needed) — pick whichever is least friction for who
-   you're sharing with.
-7. Save. Visiting either domain now redirects to a Cloudflare-hosted login
-   page first; only allowed identities get through to the app / Worker.
+1. Zero Trust → Access → Applications → team name `falling-disk-d589`.
+2. Self-hosted application "music-tracker", Destination: Subdomain
+   `music-tracker`, Domain `stephen-nolan85.workers.dev`, no path (covers the
+   whole Worker — `/spotify`, `/upload-attachment`, everything).
+3. Policy "My email": Allow, Include → Emails → `stephen.nolan85@gmail.com`.
+4. Identity provider: only "Sign in with Cloudflare" is enabled by default
+   (not "One-time PIN" as originally assumed) — fine for solo use since
+   that's already Stephen's account, but anyone else added to the policy
+   would need their own Cloudflare account too. Add "One-time PIN" under
+   **Settings → Authentication** first if sharing beyond that.
+5. Verified: a direct browser visit to
+   `https://music-tracker.stephen-nolan85.workers.dev` now shows the
+   Cloudflare Access login page before anything else.
 
-No code or CORS changes needed — this sits in front of both origins at the
-network edge. Update this doc once it's actually configured (date + which
-IdP chosen).
+**Still needed before this actually works end-to-end:**
+
+- **Worker CORS headers** — add `'Access-Control-Allow-Credentials': 'true'`
+  alongside the existing `Access-Control-Allow-Origin:
+  https://imademybones.github.io` on every response (including the `OPTIONS`
+  preflight response). Required because the client now sends
+  `credentials: 'include'` (see below) — without this header, the browser
+  discards the cross-origin cookie regardless.
+- **Client fetch changes** — done in `index.html` v16 (commit `b568b8a`):
+  all four Worker-bound `fetch()` calls (`airtableRequest`, artwork upload,
+  Spotify search, Spotify artist lookup) now send `credentials: 'include'`,
+  so the browser attaches the `CF_Authorization` cookie Access sets after
+  login. The iTunes cover-art fetch is untouched — it isn't behind the
+  Worker/Access.
+- **Not yet verified: CORS preflight vs. Access.** `airtableRequest` sends
+  `Content-Type: application/json`, which triggers a browser preflight
+  (`OPTIONS`) before most requests. Preflight requests never carry cookies,
+  so if Access gates *all* methods on the Worker, the preflight itself could
+  get redirected to the login page instead of answered by the Worker,
+  breaking the real request before it's even sent. If this happens after the
+  CORS header fix above, the likely solution is an Access policy scoped to
+  `OPTIONS` on this application with a **Bypass** action, so preflight
+  reaches the Worker directly while every other method still requires login.
+- End-to-end test once both pieces above are in place: load the live app at
+  `https://imademybones.github.io/music-tracker/` (already logged into
+  Access from the direct-Worker-visit test above) and confirm releases
+  actually load, rather than "could not load your collection."
+
+This sits in front of the Worker origin at the network edge — no Worker
+*route* changes needed, but see the CORS/credentials caveats above. Update
+this section once the remaining pieces are confirmed working end-to-end.
 
 ## Deploy
 
