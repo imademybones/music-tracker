@@ -163,6 +163,31 @@
     color: var(--text-dim);
     flex-shrink: 0;
   }
+  /* ---- v10: manual artwork override ---- */
+  .cover-wrap{ position: relative; flex-shrink: 0; }
+  .cover-wrap.hero{ width: 72px; height: 72px; }
+  .cover-wrap.card{ width: 48px; height: 48px; }
+  .cover-edit-btn{
+    position: absolute;
+    bottom: -4px;
+    right: -4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--gold);
+    color: #1a1a1a;
+    border: 1px solid var(--surface);
+    font-size: 10px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0.9;
+  }
+  .cover-edit-btn:hover{ opacity: 1; }
+
   .hero-text{ flex: 1; min-width: 0; }
   .hero-tag{
     font-family: var(--font-display);
@@ -1407,6 +1432,162 @@
     });
   }
 
+  // ---- v10: manual artwork override modal ----
+  let artworkModalId = null;
+
+  function openArtworkModal(id){
+    artworkModalId = id;
+    const release = releases.find(r => r.id === id);
+    if(!release) return;
+    if(openOverflowId === id){ openOverflowId = null; renderList(); }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'artworkModalOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:300;padding:20px;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--surface);border:1px solid var(--gold-dim);border-radius:4px;padding:20px 22px;max-width:380px;width:100%;font-family:var(--font-body);font-size:13px;color:var(--text);';
+
+    box.innerHTML = `
+      <div style="font-family:var(--font-display);font-size:14px;font-weight:600;margin-bottom:4px;">Edit artwork</div>
+      <div style="color:var(--text-dim);font-size:12px;margin-bottom:14px;">${esc(release.artist)}${release.title ? ' — ' + esc(release.title) : ''}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <input type="file" id="artworkFileInput" accept="image/*" style="font-size:12px;">
+        <div style="text-align:center;color:var(--text-dim);font-size:11px;">— or —</div>
+        <input type="text" id="artworkUrlInput" placeholder="Paste an image URL" style="width:100%;box-sizing:border-box;">
+      </div>
+      <div id="artworkModalStatus" style="font-size:12px;color:var(--text-dim);margin-top:10px;min-height:16px;"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:space-between;">
+        <button class="btn-ghost" id="artworkRemoveBtn" ${release.coverOverride ? '' : 'style="visibility:hidden;"'}>Remove override</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-ghost" id="artworkCancelBtn">Cancel</button>
+          <button class="btn-primary" id="artworkSaveBtn">Save</button>
+        </div>
+      </div>
+    `;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    document.getElementById('artworkCancelBtn').onclick = closeArtworkModal;
+    overlay.onclick = (e) => { if(e.target === overlay) closeArtworkModal(); };
+    document.getElementById('artworkRemoveBtn').onclick = () => removeArtworkOverride(id);
+    document.getElementById('artworkSaveBtn').onclick = () => saveArtworkFromModal(id);
+  }
+
+  function closeArtworkModal(){
+    const overlay = document.getElementById('artworkModalOverlay');
+    if(overlay) document.body.removeChild(overlay);
+    artworkModalId = null;
+  }
+
+  function setArtworkModalStatus(msg){
+    const el = document.getElementById('artworkModalStatus');
+    if(el) el.textContent = msg;
+  }
+
+  async function saveArtworkFromModal(id){
+    const fileInput = document.getElementById('artworkFileInput');
+    const urlInput = document.getElementById('artworkUrlInput');
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    const url = urlInput ? urlInput.value.trim() : '';
+
+    if(file){
+      await uploadArtworkFile(id, file);
+    } else if(url){
+      await saveArtworkUrl(id, url);
+    } else {
+      setArtworkModalStatus('Choose a file or paste a URL first.');
+    }
+  }
+
+  // URL path: a normal Airtable field PATCH — Airtable fetches and hosts the
+  // image itself, no Worker changes needed beyond the existing proxy route.
+  async function saveArtworkUrl(id, url){
+    setArtworkModalStatus('Saving…');
+    try{
+      const data = await airtableRequest(API_URL, {
+        method: 'PATCH',
+        body: JSON.stringify({ records: [{ id, fields: { 'Cover Override': [{ url }] } }] })
+      });
+      applyArtworkResult(id, data.records[0]);
+      closeArtworkModal();
+      showToast('Artwork updated.');
+    }catch(e){
+      console.error('Artwork URL save failed:', e);
+      setArtworkModalStatus('Could not save that URL — check it and try again.');
+    }
+  }
+
+  // File path: base64-encode and send to the Worker's dedicated upload route,
+  // which forwards to Airtable's content-upload API (requires the field ID,
+  // not just the field name — see Worker deployment notes).
+  function fileToBase64(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadArtworkFile(id, file){
+    setArtworkModalStatus('Uploading…');
+    try{
+      const base64 = await fileToBase64(file);
+      const res = await fetch(ATTACHMENT_UPLOAD_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recordId: id,
+          filename: file.name || 'cover.jpg',
+          contentType: file.type || 'image/jpeg',
+          file: base64,
+        })
+      });
+      if(!res.ok) throw new Error(`Upload error ${res.status}`);
+      const data = await res.json();
+      // Airtable's uploadAttachment response nests the updated field under fields.
+      const updatedField = data.fields && data.fields['Cover Override'];
+      applyArtworkResult(id, { fields: { 'Cover Override': updatedField } });
+      closeArtworkModal();
+      showToast('Artwork updated.');
+    }catch(e){
+      console.error('Artwork upload failed:', e);
+      setArtworkModalStatus('Upload failed — check your connection and try again.');
+    }
+  }
+
+  async function removeArtworkOverride(id){
+    setArtworkModalStatus('Removing…');
+    try{
+      await airtableRequest(API_URL, {
+        method: 'PATCH',
+        body: JSON.stringify({ records: [{ id, fields: { 'Cover Override': [] } }] })
+      });
+      const idx = releases.findIndex(r => r.id === id);
+      if(idx !== -1) releases[idx].coverOverride = null;
+      closeArtworkModal();
+      renderFriday();
+      renderHero();
+      renderList();
+      renderModal();
+      showToast('Reverted to auto-lookup.');
+    }catch(e){
+      console.error('Artwork remove failed:', e);
+      setArtworkModalStatus('Could not remove override — try again.');
+    }
+  }
+
+  function applyArtworkResult(id, record){
+    const f = (record && record.fields) || {};
+    const url = (f['Cover Override'] && f['Cover Override'][0] && f['Cover Override'][0].url) || null;
+    const idx = releases.findIndex(r => r.id === id);
+    if(idx !== -1) releases[idx].coverOverride = url;
+    renderFriday();
+    renderHero();
+    renderList();
+    renderModal();
+  }
+
   let releases = [];
 
   // Cover art cache (Apple iTunes Search API, keyed by lowercase "artist|||title").
@@ -1447,16 +1628,32 @@
     tile: ['tile-cover', 'tile-cover-placeholder'],
     friday: ['friday-cover', 'friday-cover-placeholder'],
   };
+  // v10: manual artwork override — if a release has a Cover Override
+  // attachment set in Airtable, it always wins over the iTunes auto-lookup
+  // (checked first, no fetch needed). The edit pencil only shows on the
+  // 'hero' and 'card' variants (Queued-to-listen box and the detail modal)
+  // — grid tiles/list rows/Friday box stay read-only to avoid clutter.
+  const EDITABLE_COVER_VARIANTS = ['hero', 'card'];
   function coverHtml(release, variant){
+    const [imgClass, placeholderClass] = COVER_VARIANT_CLASSES[variant] || COVER_VARIANT_CLASSES.card;
+    const editable = EDITABLE_COVER_VARIANTS.includes(variant);
+    const editBtn = editable
+      ? `<button class="cover-edit-btn ${variant}" onclick="event.stopPropagation();openArtworkModal('${release.id}')" title="Edit artwork">✎</button>`
+      : '';
+    const wrap = (inner) => editable ? `<div class="cover-wrap ${variant}">${inner}${editBtn}</div>` : inner;
+
+    if(release.coverOverride){
+      return wrap(`<img class="${imgClass}" src="${release.coverOverride}" alt="" loading="lazy">`);
+    }
+
     const key = coverKey(release.artist, release.title);
     const cached = coverCache[key];
-    const [imgClass, placeholderClass] = COVER_VARIANT_CLASSES[variant] || COVER_VARIANT_CLASSES.card;
     if(cached === undefined){
       if(!(key in coverCache)) fetchCover(release.artist, release.title);
-      return `<div class="${placeholderClass}">🎵</div>`;
+      return wrap(`<div class="${placeholderClass}">🎵</div>`);
     }
-    if(!cached) return `<div class="${placeholderClass}">🎵</div>`;
-    return `<img class="${imgClass}" src="${cached}" alt="" loading="lazy">`;
+    if(!cached) return wrap(`<div class="${placeholderClass}">🎵</div>`);
+    return wrap(`<img class="${imgClass}" src="${cached}" alt="" loading="lazy">`);
   }
   let formRating = 0;
   let editingId = null;
@@ -1470,6 +1667,10 @@
   // The same Worker also proxies Spotify Web API search (Client Credentials
   // flow, app-only — no user Spotify login needed). See music-tracker-worker.js.
   const SPOTIFY_PROXY_URL = `${WORKER_URL}/spotify`;
+  // v10: manual artwork override — file uploads go through a dedicated Worker
+  // route that proxies Airtable's content-upload API (see reference doc /
+  // deployment notes for the Worker-side snippet this requires).
+  const ATTACHMENT_UPLOAD_URL = `${WORKER_URL}/upload-attachment`;
 
   async function airtableRequest(url, options = {}) {
     // Auth now happens inside the Worker — no token is attached client-side.
@@ -1504,6 +1705,7 @@
       updatedAt: f['Updated At'] || Date.now(),
       spotifyAdded: !!f['Spotify Added'],
       spotifyUrl: f['Spotify URL'] || '', // v9: exact album link, blank for manual/older entries
+      coverOverride: (f['Cover Override'] && f['Cover Override'][0] && f['Cover Override'][0].url) || null, // v10
     };
   }
 
@@ -1946,19 +2148,23 @@
     `;
   }
 
-  // ---- v7: "Out this Friday" — nearest upcoming Friday (today counts) ----
-  function nearestFriday(){
+  // ---- v10: "New releases: Friday <date>" — the most recent Friday
+  // on-or-before today. Unlike the old "nearest upcoming Friday" logic,
+  // this holds steady all week (Fri through next Thu) instead of jumping
+  // forward the moment Friday ends, so the week's releases stay visible
+  // until the next release Friday actually arrives.
+  function currentReleaseFriday(){
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const diff = (5 - today.getDay() + 7) % 7;
+    const diff = (today.getDay() - 5 + 7) % 7;
     const friday = new Date(today);
-    friday.setDate(today.getDate() + diff);
+    friday.setDate(today.getDate() - diff);
     return friday;
   }
 
   function renderFriday(){
     const slot = document.getElementById('fridaySlot');
-    const friday = nearestFriday();
+    const friday = currentReleaseFriday();
     const matches = releases.filter(r => {
       const d = parseReleaseDate(r.year);
       return !!d
@@ -1967,9 +2173,10 @@
         && d.getDate() === friday.getDate();
     });
     if(matches.length === 0){ slot.innerHTML = ''; return; }
+    const label = `New releases: Friday ${friday.getDate()} ${MONTH_NAMES[friday.getMonth()]}`;
     slot.innerHTML = `
       <div class="friday-box">
-        <div class="friday-tag">Out This Friday</div>
+        <div class="friday-tag">${esc(label)}</div>
         <div class="friday-list">
           ${matches.map(r => `
             <div class="friday-item" onclick="openReleaseModal('${r.id}')">
@@ -2082,6 +2289,7 @@
           <button class="btn-overflow" onclick="toggleOverflowMenu('${r.id}')" title="More actions">•••</button>
           <div class="overflow-menu ${openOverflowId === r.id ? 'open' : ''}">
             <button onclick="editRelease('${r.id}')">✎ Edit</button>
+            <button onclick="openArtworkModal('${r.id}')">🖼 Artwork</button>
             <button class="danger-item ${pendingRemoveId === r.id ? 'confirming' : ''}" onclick="requestDeleteRelease('${r.id}')">
               ${pendingRemoveId === r.id ? 'Confirm remove?' : '✕ Remove'}
             </button>
