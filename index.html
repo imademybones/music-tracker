@@ -149,7 +149,12 @@
     border-radius: 4px;
     padding: 18px 20px;
     margin-bottom: 22px;
+    cursor: pointer;
+    transition: background 0.15s;
   }
+  .hero-card:hover{ background: var(--surface-2); }
+  /* ---- v12: hero click-through + Spotify link ---- */
+  .hero-links{ margin-top: 6px; }
   .hero-cover{
     width: 72px;
     height: 72px;
@@ -655,6 +660,47 @@
   }
   .modal-close:hover { color: var(--text); border-color: var(--border-hover); }
 
+  /* ---- v12: genre pill click-through gallery ---- */
+  .genre-gallery-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 140;
+  }
+  .genre-gallery-box {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 20px 22px;
+    max-width: 720px;
+    width: 100%;
+    max-height: 82vh;
+    overflow-y: auto;
+  }
+  .genre-gallery-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .genre-gallery-title {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--gold);
+    text-transform: capitalize;
+  }
+  .genre-gallery-count {
+    font-family: var(--font-display);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
   /* ---- v7: "Out this Friday" box ---- */
   .friday-box {
     background: var(--surface);
@@ -971,47 +1017,32 @@
     color: var(--text-muted);
   }
 
-  .genre-bars { display: flex; flex-direction: column; gap: 6px; }
-
-  .genre-bar-row {
+  /* ---- v12: genre breakdown as a clickable, weighted pill cloud
+     (replaces the old static horizontal bars) ---- */
+  .genre-pills {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: baseline;
   }
 
-  .genre-bar-label {
+  .genre-pill {
     font-family: var(--font-display);
-    font-size: 11px;
-    color: var(--text-muted);
-    width: 100px;
-    flex-shrink: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .genre-bar-track {
-    flex: 1;
-    height: 6px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--gold);
     background: var(--surface-2);
-    border-radius: 3px;
-    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px 11px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
   }
-
-  .genre-bar-fill {
-    height: 100%;
-    background: var(--gold);
-    border-radius: 3px;
-    transition: width 0.5s ease;
-  }
-
-  .genre-bar-count {
-    font-family: var(--font-display);
-    font-size: 11px;
+  .genre-pill:hover { border-color: var(--gold-dim); background: var(--surface); }
+  .genre-pill-count {
+    font-size: 0.85em;
     color: var(--text-dim);
-    width: 20px;
-    text-align: right;
-    flex-shrink: 0;
+    margin-left: 4px;
   }
 
   /* TOAST */
@@ -2134,6 +2165,8 @@
   // v8: candidates are unlistened AND already released — upcoming releases
   // surface via the "Out This Friday" box / their own status badge instead,
   // not the "queued to listen" hero.
+  // v12: hero card opens the release modal + shows a Spotify link, matching
+  // the Friday box and grid tiles.
   function renderHero(){
     const heroSlot = document.getElementById('heroSlot');
     const candidates = releases.filter(r => releaseStatus(r) === 'unlistened');
@@ -2145,12 +2178,13 @@
     }
     const next = [...candidates].sort((a,b) => b.addedAt - a.addedAt)[0];
     heroSlot.innerHTML = `
-      <div class="hero-card">
+      <div class="hero-card" onclick="openReleaseModal('${next.id}')">
         ${coverHtml(next, 'hero')}
         <div class="hero-text">
           <div class="hero-tag">Queued to listen</div>
           <div class="hero-artist">${esc(next.artist)}</div>
           ${next.title ? `<div class="hero-album">${esc(next.title)}</div>` : ''}
+          <div class="hero-links">${spotifyLinkHtml(next)}</div>
         </div>
       </div>
     `;
@@ -2424,16 +2458,19 @@
         });
       }
     });
+    // v12: pill cloud instead of static bars — each pill's size/opacity scales
+    // with its share of the top genre, and clicking one opens a gallery of
+    // matching releases (see openGenreGallery below).
     const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
     const maxG = sortedGenres[0]?.[1] || 1;
     const genreHtml = sortedGenres.length ? `
-      <div class="genre-bars">
-        ${sortedGenres.map(([g, c]) => `
-        <div class="genre-bar-row">
-          <span class="genre-bar-label">${esc(g)}</span>
-          <div class="genre-bar-track"><div class="genre-bar-fill" style="width:${Math.round((c / maxG) * 100)}%"></div></div>
-          <span class="genre-bar-count">${c}</span>
-        </div>`).join('')}
+      <div class="genre-pills">
+        ${sortedGenres.map(([g, c]) => {
+          const weight = c / maxG;
+          const fontSize = (11 + weight * 7).toFixed(1);
+          const opacity = (0.6 + weight * 0.4).toFixed(2);
+          return `<button type="button" class="genre-pill" style="font-size:${fontSize}px;opacity:${opacity}" data-genre="${esc(g)}" onclick="openGenreGallery(this.dataset.genre)">${esc(g)}<span class="genre-pill-count">${c}</span></button>`;
+        }).join('')}
       </div>` : '<p style="color:var(--text-dim);font-size:12px;">No genre data.</p>';
 
     // Format breakdown
@@ -2453,6 +2490,37 @@
       <div class="stats-section-title">By Format</div>
       <div class="top-list">${formatHtml}</div>
     `;
+  }
+
+  // v12: click-to-filter gallery for a genre pill — imperative overlay
+  // (same append/remove pattern as openArtworkModal), reusing renderGridTile
+  // and the .release-list grid so it looks like the main tile view.
+  function openGenreGallery(tag){
+    const matches = releases.filter(r => r.genre && r.genre.split(',').some(g => g.trim().toLowerCase() === tag));
+    if(!matches.length) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'genreGalleryOverlay';
+    overlay.className = 'genre-gallery-overlay';
+    overlay.onclick = (e) => { if(e.target === overlay) closeGenreGallery(); };
+
+    const box = document.createElement('div');
+    box.className = 'genre-gallery-box';
+    box.innerHTML = `
+      <button class="modal-close" onclick="closeGenreGallery()" title="Close">✕</button>
+      <div class="genre-gallery-header">
+        <span class="genre-gallery-title">${esc(tag)}</span>
+        <span class="genre-gallery-count">${matches.length} release${matches.length > 1 ? 's' : ''}</span>
+      </div>
+      <div class="release-list">${matches.map(renderGridTile).join('')}</div>
+    `;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  }
+
+  function closeGenreGallery(){
+    const overlay = document.getElementById('genreGalleryOverlay');
+    if(overlay) document.body.removeChild(overlay);
   }
 
   // ── Header Stats ───────────────────────────────────
