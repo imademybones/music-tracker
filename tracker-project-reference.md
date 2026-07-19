@@ -40,15 +40,18 @@ for the real access-control layer.
 
 ## Cloudflare Access (go-live gate)
 
-**Status: in progress, 2026-07-19.** Worker-only scope chosen — the static
-page on GitHub Pages can't be gated by Access (Access only intercepts traffic
-through domains Cloudflare's edge actually proxies; `imademybones.github.io`
-never touches Cloudflare, so it wasn't even selectable as an Application
-domain). The page shell stays publicly loadable; the Worker — the part that
-actually touches Airtable — is the one gated. Turned out **not** to be a
-zero-code-change layer as originally scoped; see below.
+**Status: done and verified end-to-end, 2026-07-19.** Worker-only scope —
+the static page on GitHub Pages can't be gated by Access at all (Access only
+intercepts traffic through domains Cloudflare's edge actually proxies;
+`imademybones.github.io` never touches Cloudflare, so it wasn't even
+selectable as an Application domain). The page shell stays publicly
+loadable; the Worker — the part that actually touches Airtable — is the one
+gated. Turned out **not** to be the zero-code-change layer originally
+scoped: it needed client fetch changes, a Worker CORS header, and a specific
+Access setting, all recorded below since none of this is obvious from the
+Cloudflare UI alone.
 
-Setup so far:
+Setup:
 
 1. Zero Trust → Access → Applications → team name `falling-disk-d589`.
 2. Self-hosted application "music-tracker", Destination: Subdomain
@@ -60,41 +63,41 @@ Setup so far:
    that's already Stephen's account, but anyone else added to the policy
    would need their own Cloudflare account too. Add "One-time PIN" under
    **Settings → Authentication** first if sharing beyond that.
-5. Verified: a direct browser visit to
-   `https://music-tracker.stephen-nolan85.workers.dev` now shows the
-   Cloudflare Access login page before anything else.
+5. **Application → Additional settings → Advanced settings → CORS settings →
+   "Bypass options requests to origin"** — enabled. Required because
+   preflight (`OPTIONS`) requests never carry cookies, so Access can't
+   authenticate them; without this, Access intercepts preflight and returns
+   a response with no `Access-Control-Allow-Origin` header, which the
+   browser treats as a failed preflight, blocking the real request before
+   it's even sent. Safe here because the Worker already answers `OPTIONS`
+   unconditionally with full CORS headers before its own Origin check (see
+   `corsHeaders()` in the Worker source) — this setting just lets that
+   handler actually get reached.
+6. Worker CORS headers — added `'Access-Control-Allow-Credentials': 'true'`
+   to `corsHeaders()` in the Worker (pasted via dashboard Quick Edit).
+   Required because index.html now sends `credentials: 'include'`; without
+   this header the browser discards the cookie regardless.
+7. Client fetch changes — `index.html` v16 (commit `b568b8a`): all four
+   Worker-bound `fetch()` calls (`airtableRequest`, artwork upload, Spotify
+   search, Spotify artist lookup) send `credentials: 'include'`, so the
+   browser attaches the `CF_Authorization` cookie after login. The iTunes
+   cover-art fetch is untouched — it isn't behind the Worker/Access.
 
-**Still needed before this actually works end-to-end:**
+**Caveats worth remembering:**
 
-- **Worker CORS headers** — add `'Access-Control-Allow-Credentials': 'true'`
-  alongside the existing `Access-Control-Allow-Origin:
-  https://imademybones.github.io` on every response (including the `OPTIONS`
-  preflight response). Required because the client now sends
-  `credentials: 'include'` (see below) — without this header, the browser
-  discards the cross-origin cookie regardless.
-- **Client fetch changes** — done in `index.html` v16 (commit `b568b8a`):
-  all four Worker-bound `fetch()` calls (`airtableRequest`, artwork upload,
-  Spotify search, Spotify artist lookup) now send `credentials: 'include'`,
-  so the browser attaches the `CF_Authorization` cookie Access sets after
-  login. The iTunes cover-art fetch is untouched — it isn't behind the
-  Worker/Access.
-- **Not yet verified: CORS preflight vs. Access.** `airtableRequest` sends
-  `Content-Type: application/json`, which triggers a browser preflight
-  (`OPTIONS`) before most requests. Preflight requests never carry cookies,
-  so if Access gates *all* methods on the Worker, the preflight itself could
-  get redirected to the login page instead of answered by the Worker,
-  breaking the real request before it's even sent. If this happens after the
-  CORS header fix above, the likely solution is an Access policy scoped to
-  `OPTIONS` on this application with a **Bypass** action, so preflight
-  reaches the Worker directly while every other method still requires login.
-- End-to-end test once both pieces above are in place: load the live app at
-  `https://imademybones.github.io/music-tracker/` (already logged into
-  Access from the direct-Worker-visit test above) and confirm releases
-  actually load, rather than "could not load your collection."
-
-This sits in front of the Worker origin at the network edge — no Worker
-*route* changes needed, but see the CORS/credentials caveats above. Update
-this section once the remaining pieces are confirmed working end-to-end.
+- A direct browser visit to `https://music-tracker.stephen-nolan85.workers.dev`
+  will *always* show "Forbidden" even once logged in — that's expected,
+  it's the Worker's own `Origin` check rejecting a raw navigation (no
+  `Origin` header on a top-level GET), not an Access problem.
+- The Access session cookie is scoped normally — it does **not** persist
+  across incognito vs. regular windows, or across separate incognito
+  sessions. Login and app testing need to happen in the same window/profile,
+  or every request looks like a fresh unauthenticated one (this cost a fair
+  bit of confused debugging before the actual root cause — an expired/never-
+  shared session, not a config bug — was spotted).
+- Verified working: loaded `https://imademybones.github.io/music-tracker/`
+  logged-in-in-the-same-window and the real collection (74 releases) loaded
+  correctly through the gate.
 
 ## Deploy
 
