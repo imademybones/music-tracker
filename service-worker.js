@@ -1,7 +1,7 @@
 // Music Tracker — offline app shell
 // Caches only same-origin shell assets so the app is installable and opens
-// instantly offline. Airtable/Spotify/iTunes requests are never cached and
-// always go straight to the network.
+// even with no network at all. Airtable/Spotify/iTunes requests are never
+// cached and always go straight to the network.
 
 // v17: bumped from v1 — the old cache could keep serving a stale lib/pure.js
 // (missing the new monthlyAddedCounts export) alongside a fresh index.html
@@ -46,18 +46,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // v17: network-first (was cache-first-with-background-update). Cache-first
+  // could serve a stale file (e.g. lib/pure.js) alongside a freshly-fetched
+  // sibling (e.g. index.html) that imports something the stale file doesn't
+  // export yet — the module graph breaks and the whole app blanks out (see
+  // the CACHE_NAME bump above). Trying the network first means anyone
+  // online always gets the current, mutually-consistent set of files; the
+  // cache is now purely an offline fallback, not a source of truth.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
