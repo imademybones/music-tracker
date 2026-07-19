@@ -209,6 +209,7 @@
     coverKey,
     spotifyDateToIso,
     formatFromSpotifyAlbumType,
+    monthlyAddedCounts,
   } from './lib/pure.js';
 
   // ── State ──────────────────────────────────────────
@@ -219,6 +220,14 @@
     document.querySelector('#addFormDisclosure .disclosure-head').setAttribute('aria-expanded', String(!collapsed));
   }
 
+  // v17: empty-state CTA — opens the add form and focuses the first field,
+  // reusing the same disclosure toggle keyboard shortcut "a" wires up.
+  function startFirstAdd(){
+    document.getElementById('addFormDisclosure').classList.remove('collapsed');
+    document.querySelector('#addFormDisclosure .disclosure-head').setAttribute('aria-expanded', 'true');
+    document.getElementById('fArtist').focus();
+  }
+
   // ---- v6: mobile filter sheet ----
   function toggleFilterPanel(){
     const bar = document.getElementById('filterBar');
@@ -226,17 +235,32 @@
     const open = bar.classList.toggle('open');
     btn.textContent = open ? 'Filters ▴' : 'Filters ▾';
   }
+  // v17: was a plain "N active" count — now one removable chip per active
+  // filter, so you can see (and clear) exactly which filters are on
+  // without opening the filter bar.
+  const FILTER_CHIP_CONTROLS = [
+    { id: 'searchInput', label: (v) => `"${v}"` },
+    { id: 'filterListened', label: (v) => v === 'yes' ? 'Listened' : 'To Listen' },
+    { id: 'filterFormat', label: (v, el) => el.options[el.selectedIndex].text },
+    { id: 'filterGenre', label: (v, el) => el.options[el.selectedIndex].text },
+    { id: 'filterDecade', label: (v, el) => el.options[el.selectedIndex].text },
+    { id: 'filterRating', label: (v, el) => el.options[el.selectedIndex].text },
+  ];
   function updateFilterSummary(){
     const summary = document.getElementById('filterSummary');
     if(!summary) return;
-    const q = document.getElementById('searchInput').value.trim();
-    const fl = document.getElementById('filterListened').value;
-    const ff = document.getElementById('filterFormat').value;
-    const fg = document.getElementById('filterGenre').value;
-    const fd = document.getElementById('filterDecade').value;
-    const fr = document.getElementById('filterRating').value;
-    const active = [q, fl, ff, fg, fd, fr].filter(Boolean).length;
-    summary.textContent = active > 0 ? `${active} active` : '';
+    const active = FILTER_CHIP_CONTROLS
+      .map(c => ({ ...c, el: document.getElementById(c.id) }))
+      .map(c => ({ ...c, value: c.el.value.trim ? c.el.value.trim() : c.el.value }))
+      .filter(c => c.value);
+    summary.innerHTML = active.map(c =>
+      `<span class="filter-chip">${esc(c.label(c.value, c.el))}<button type="button" onclick="clearFilterChip('${c.id}')" aria-label="Remove filter">✕</button></span>`
+    ).join('');
+  }
+  function clearFilterChip(id){
+    document.getElementById(id).value = '';
+    renderList();
+    updateFilterSummary();
   }
 
   // ---- v6: per-card overflow action menu ----
@@ -532,14 +556,17 @@
       : '';
     const wrap = (inner) => editable ? `<div class="cover-wrap ${variant}">${inner}${editBtn}</div>` : inner;
 
+    // v17: fade in once loaded — cover-loading starts at opacity 0, the
+    // onload handler adds cover-loaded which CSS transitions to opacity 1
+    // (no-op outside prefers-reduced-motion:no-preference, see styles.css).
     if(release.coverOverride){
-      return wrap(`<img class="${imgClass}" src="${release.coverOverride}" alt="" loading="lazy">`);
+      return wrap(`<img class="${imgClass} cover-loading" onload="this.classList.add('cover-loaded')" src="${release.coverOverride}" alt="" loading="lazy">`);
     }
 
     // v13: persisted auto-lookup — set once fetchCover resolves successfully,
     // read on every subsequent load (any device) with no iTunes call at all.
     if(release.coverCacheUrl){
-      return wrap(`<img class="${imgClass}" src="${release.coverCacheUrl}" alt="" loading="lazy">`);
+      return wrap(`<img class="${imgClass} cover-loading" onload="this.classList.add('cover-loaded')" src="${release.coverCacheUrl}" alt="" loading="lazy">`);
     }
 
     const key = coverKey(release.artist, release.title);
@@ -549,7 +576,7 @@
       return wrap(`<div class="${placeholderClass}">🎵</div>`);
     }
     if(!cached) return wrap(`<div class="${placeholderClass}">🎵</div>`);
-    return wrap(`<img class="${imgClass}" src="${cached}" alt="" loading="lazy">`);
+    return wrap(`<img class="${imgClass} cover-loading" onload="this.classList.add('cover-loaded')" src="${cached}" alt="" loading="lazy">`);
   }
   let formRating = 0;
   let editingId = null;
@@ -640,9 +667,15 @@
   }
 
   // ── Storage ────────────────────────────────────────
+  // v17: skeleton tiles instead of plain "Loading…" text, matching the
+  // grid tile's aspect ratio so the layout doesn't jump once data arrives.
+  function skeletonTilesHtml(count){
+    return '<div class="release-list">' + Array(count).fill('<div class="skeleton-tile"></div>').join('') + '</div>';
+  }
+
   async function loadReleases() {
     const container = document.getElementById('releaseList');
-    container.innerHTML = '<div class="empty-state"><p>Loading your collection…</p></div>';
+    container.innerHTML = skeletonTilesHtml(6);
     try {
       let all = [];
       let offset = null;
@@ -667,6 +700,14 @@
     renderHero();
     renderList();
     updateHeaderStats();
+    openHashModalIfPresent();
+  }
+
+  // v17: on initial load, reopen a release modal deep-linked via
+  // #release/{id} (see openReleaseModal/closeReleaseModal above).
+  function openHashModalIfPresent(){
+    const m = location.hash.match(/^#release\/(.+)$/);
+    if(m && releases.find(r => r.id === m[1])) openReleaseModal(m[1]);
   }
 
   // v14: offline read fallback — falls back to the last successful load's
@@ -688,6 +729,7 @@
     renderList();
     updateHeaderStats();
     showOfflineBanner(cache.cachedAt);
+    openHashModalIfPresent();
     return true;
   }
 
@@ -971,6 +1013,29 @@
     updateHeaderStats();
   }
 
+  // v17: change a release's rating straight from the modal, without opening
+  // the full Edit form — same PATCH-then-re-render pattern as toggleListened.
+  async function updateRatingInline(id, value) {
+    const r = releases.find(x => x.id === id);
+    if (!r) return;
+    const prevRating = r.rating;
+    const newUpdatedAt = Date.now();
+    try {
+      await airtableRequest(API_URL, {
+        method: 'PATCH',
+        body: JSON.stringify({ records: [{ id, fields: { 'Rating': value, 'Updated At': newUpdatedAt } }] })
+      });
+      r.rating = value;
+      r.updatedAt = newUpdatedAt;
+    } catch (e) {
+      console.error('Rating update failed:', e);
+      showToast('Could not update rating — check your connection and try again.');
+      return;
+    }
+    if (prevRating !== value) { renderList(); updateHeaderStats(); }
+    renderModal();
+  }
+
   // ── Genre taxonomy (v13) ───────────────────────────
   // Trims + collapses whitespace on each comma-separated tag. Doesn't
   // lowercase or reject unrecognized tags — this is a personal tool, not a
@@ -1093,23 +1158,47 @@
     return html;
   }
 
+  // v17: clickable variant used only inside the detail modal — grid tiles
+  // and list rows keep the static ratingDots() above (read-only). Always
+  // renders all 5 dots (not just when rating > 0) so a 0-rated release has
+  // somewhere to click.
+  function interactiveRatingDots(id, rating) {
+    let html = '';
+    for (let i = 1; i <= 5; i++) {
+      html += `<div class="card-dot${i <= rating ? ' filled' : ''}" onclick="event.stopPropagation();updateRatingInline('${id}', ${i})" title="Rate ${i} star${i > 1 ? 's' : ''}"></div>`;
+    }
+    return html;
+  }
+
   // v8: candidates are unlistened AND already released — upcoming releases
   // surface via the "Out This Friday" box / their own status badge instead,
   // not the "queued to listen" hero.
   // v12: hero card opens the release modal + shows a Spotify link, matching
   // the Friday box and grid tiles.
+  // v17: tracks the previously-rendered hero id so renderHero() can tell a
+  // genuine hero swap (crossfade) apart from a re-render of the same pick
+  // (e.g. after toggling a filter) — same pattern as openModalId/viewMode.
+  let lastHeroId = null;
   function renderHero(){
     const heroSlot = document.getElementById('heroSlot');
     const candidates = releases.filter(r => releaseStatus(r) === 'unlistened');
     if(candidates.length === 0){
+      lastHeroId = null;
       heroSlot.innerHTML = releases.length === 0
         ? ''
         : '<div class="hero-empty">Nothing released and unheard right now — check back after the next drop.</div>';
       return;
     }
     const next = [...candidates].sort((a,b) => b.addedAt - a.addedAt)[0];
+    const isNewHero = lastHeroId !== null && lastHeroId !== next.id;
+    lastHeroId = next.id;
+    // v17: "Surprise me" only makes sense with more than one candidate to
+    // pick from — a pool of 1 is just the hero itself.
+    const surpriseBtn = candidates.length > 1
+      ? `<button class="btn-ghost surprise-btn" onclick="surpriseMe()">🎲 Surprise me</button>`
+      : '';
     heroSlot.innerHTML = `
-      <div class="hero-card" tabindex="0" role="button" aria-label="Open ${esc(next.artist)}${next.title ? ' — ' + esc(next.title) : ''}" onclick="openReleaseModal('${next.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${next.id}');}">
+      <div class="hero-card${isNewHero ? ' hero-fade' : ''}" tabindex="0" role="button" aria-label="Open ${esc(next.artist)}${next.title ? ' — ' + esc(next.title) : ''}" onclick="openReleaseModal('${next.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${next.id}');}">
         ${coverHtml(next, 'hero')}
         <div class="hero-text">
           <div class="hero-tag">Queued to listen</div>
@@ -1118,7 +1207,18 @@
           <div class="hero-links">${spotifyLinkHtml(next)}</div>
         </div>
       </div>
+      ${surpriseBtn}
     `;
+  }
+
+  // v17: picks a random unlistened-and-released release and opens its
+  // detail modal — an alternate entry point alongside the single
+  // most-recently-added hero pick above.
+  function surpriseMe(){
+    const candidates = releases.filter(r => releaseStatus(r) === 'unlistened');
+    if(!candidates.length) return;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    openReleaseModal(pick.id);
   }
 
   // ---- v10: "New releases: Friday <date>" — the most recent Friday
@@ -1232,6 +1332,22 @@
       e.preventDefault(); first.focus();
     }
   });
+  // v17: global keyboard shortcuts — "/" jumps into search, "a" opens the
+  // add form. Ignored while typing in any input/textarea/select so normal
+  // typing isn't hijacked.
+  document.addEventListener('keydown', function(e){
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    if(['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+    if(e.key === '/'){
+      e.preventDefault();
+      document.getElementById('searchInput').focus();
+    } else if(e.key === 'a'){
+      e.preventDefault();
+      startFirstAdd();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  });
+
   function focusModal(overlay){
     modalFocusReturnEl = document.activeElement;
     const items = focusableIn(overlay);
@@ -1244,17 +1360,34 @@
     modalFocusReturnEl = null;
   }
 
+  // v17: URL-addressable modal — pushes/clears a #release/{id} hash around
+  // the existing open/close so the detail view is deep-linkable, survives a
+  // refresh, and closes on browser Back. Doesn't touch the focus-trap logic.
   function openReleaseModal(id){
     openModalId = id;
     renderModal();
+    history.pushState(null, '', '#release/' + id);
     const overlay = document.querySelector('#modalSlot .modal-overlay');
     if(overlay) focusModal(overlay);
   }
   function closeReleaseModal(){
     openModalId = null;
     renderModal();
+    if(location.hash.startsWith('#release/')){
+      history.pushState(null, '', location.pathname + location.search);
+    }
     restoreModalFocus();
   }
+  window.addEventListener('popstate', function(){
+    const m = location.hash.match(/^#release\/(.+)$/);
+    if(m && releases.find(r => r.id === m[1])){
+      openModalId = m[1];
+      renderModal();
+    } else if(openModalId){
+      openModalId = null;
+      renderModal();
+    }
+  });
   function renderModal(){
     const slot = document.getElementById('modalSlot');
     if(!openModalId){ slot.innerHTML = ''; return; }
@@ -1310,7 +1443,7 @@
             ${tags ? `<div class="card-meta">${tags}</div>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
-            ${r.rating ? `<div class="card-rating">${ratingDots(r.rating)}</div>` : ''}
+            <div class="card-rating interactive">${interactiveRatingDots(r.id, r.rating)}</div>
             <span class="card-listened-badge ${badge.cls}">${badge.text}</span>
             <button class="revisit-btn" onclick="addRevisit('${r.id}')" title="Log a revisit" aria-label="Log a revisit">↺ ${r.revisits || 0}</button>
           </div>
@@ -1330,9 +1463,22 @@
       </div>`;
   }
 
+  // v17: compact rating-dot row for the grid tile scrim, sized for the
+  // tile footprint (not a reuse of .card-dot, which is styled for full-size
+  // cards).
+  function tileRatingHtml(rating){
+    if(!rating) return '';
+    let html = '<div class="tile-rating">';
+    for(let i = 1; i <= 5; i++) html += `<div class="tile-dot${i <= rating ? ' filled' : ''}"></div>`;
+    return html + '</div>';
+  }
+
   // v8: grid tile — artwork background, bottom scrim, corner status dot.
+  // v17: scrim also surfaces rating + first genre tag, previously only
+  // visible after opening the detail modal.
   function renderGridTile(r){
     const status = releaseStatus(r);
+    const firstGenre = r.genre ? r.genre.split(',')[0].trim() : '';
     return `
       <div class="release-tile" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
         ${coverHtml(r, 'tile')}
@@ -1342,6 +1488,8 @@
             <div class="tile-artist">${esc(r.artist)}</div>
             ${r.title ? `<div class="tile-title">${esc(r.title)}</div>` : ''}
           </div>
+          ${tileRatingHtml(r.rating)}
+          ${firstGenre ? `<span class="tile-genre">${esc(firstGenre)}</span>` : ''}
         </div>
       </div>`;
   }
@@ -1377,7 +1525,15 @@
     container.className = 'release-list' + (viewMode === 'list' ? ' view-list' : '');
 
     if (list.length === 0) {
-      container.innerHTML = `<div class="empty-state"><p>${releases.length === 0 ? 'No releases yet. Add one above.' : 'No matches.'}</p></div>`;
+      // v17: the truly-empty case (no releases at all, not just filtered
+      // down to nothing) becomes an actual entry point instead of a dead end.
+      container.innerHTML = releases.length === 0
+        ? `<div class="empty-state">
+             <div class="empty-state-icon">🎵</div>
+             <p>No releases yet.</p>
+             <button class="btn-primary" onclick="startFirstAdd()">+ Add your first release</button>
+           </div>`
+        : `<div class="empty-state"><p>No matches.</p></div>`;
       renderModal();
       return;
     }
@@ -1422,12 +1578,17 @@
     const pct = total ? Math.round((listened / total) * 100) : 0;
 
     document.getElementById('statsGrid').innerHTML = `
-      <div class="stats-card"><div class="big-num">${total}</div><div class="big-label">Releases Logged</div></div>
-      <div class="stats-card"><div class="big-num">${listened}</div><div class="big-label">Listened</div></div>
-      <div class="stats-card"><div class="big-num">${total - listened}</div><div class="big-label">To Listen</div></div>
-      <div class="stats-card"><div class="big-num">${pct}%</div><div class="big-label">Coverage</div></div>
+      <div class="stats-card"><div class="big-num">0</div><div class="big-label">Releases Logged</div></div>
+      <div class="stats-card"><div class="big-num">0</div><div class="big-label">Listened</div></div>
+      <div class="stats-card"><div class="big-num">0</div><div class="big-label">To Listen</div></div>
+      <div class="stats-card"><div class="big-num">0%</div><div class="big-label">Coverage</div></div>
       <div class="stats-card"><div class="big-num">${avgRating}</div><div class="big-label">Avg Rating</div></div>
     `;
+    const bigNums = document.querySelectorAll('#statsGrid .big-num');
+    animateCountUp(bigNums[0], total);
+    animateCountUp(bigNums[1], listened);
+    animateCountUp(bigNums[2], total - listened);
+    animateCountUp(bigNums[3], pct, '%');
 
     // Top rated
     const topRated = [...releases].filter(r => r.rating > 0).sort((a, b) => b.rating - a.rating).slice(0, 5);
@@ -1472,6 +1633,21 @@
         <span class="score">${c} release${c > 1 ? 's' : ''}</span>
       </div>`).join('') || '<p style="color:var(--text-dim);font-size:12px;">No format data.</p>';
 
+    // v17: time dimension — releases logged per month, trailing 12 months,
+    // zero-filled so gaps are visible rather than skipped.
+    const monthBuckets = monthlyAddedCounts(releases);
+    const maxMonthCount = Math.max(1, ...monthBuckets.map(b => b.count));
+    const monthlyHtml = `
+      <div class="month-bars">
+        ${monthBuckets.map(b => `
+          <div class="month-bar-row">
+            <span class="month-bar-label">${MONTH_NAMES[b.month].slice(0, 3)} '${String(b.year).slice(2)}</span>
+            <div class="month-bar-track"><div class="month-bar-fill" style="width:${(b.count / maxMonthCount * 100).toFixed(0)}%"></div></div>
+            <span class="month-bar-count">${b.count}</span>
+          </div>
+        `).join('')}
+      </div>`;
+
     document.getElementById('statsExtra').innerHTML = `
       <div class="stats-section-title">Top Rated</div>
       <div class="top-list">${topRatedHtml}</div>
@@ -1479,6 +1655,8 @@
       ${genreHtml}
       <div class="stats-section-title">By Format</div>
       <div class="top-list">${formatHtml}</div>
+      <div class="stats-section-title">Logged per Month</div>
+      ${monthlyHtml}
     `;
   }
 
@@ -1519,6 +1697,29 @@
     restoreModalFocus();
   }
 
+  // v17: animates an element's text from 0 to a whole-number target over
+  // ~500ms; jumps straight to the final value when the visitor prefers
+  // reduced motion. `suffix` (e.g. '%') is appended after every frame,
+  // including the final one.
+  function animateCountUp(el, target, suffix = ''){
+    if(!el) return;
+    // Also skip straight to the final value when the tab is backgrounded —
+    // requestAnimationFrame is paused for hidden tabs, so a render that
+    // happens while hidden would otherwise leave the placeholder "0"
+    // stuck indefinitely instead of ever reaching the real number.
+    if(document.hidden || !matchMedia('(prefers-reduced-motion: no-preference)').matches){
+      el.textContent = target + suffix;
+      return;
+    }
+    const duration = 500, startTime = performance.now();
+    function tick(now){
+      const p = Math.min((now - startTime) / duration, 1);
+      el.textContent = Math.round(target * p) + suffix;
+      if(p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
   // ── Header Stats ───────────────────────────────────
   function updateHeaderStats() {
     const total = releases.length;
@@ -1526,10 +1727,13 @@
     const rated = releases.filter(r => r.rating > 0);
     const avgRating = rated.length ? (rated.reduce((s, r) => s + r.rating, 0) / rated.length).toFixed(1) : '—';
     document.getElementById('headerStats').innerHTML = `
-      <div class="stat-pill"><div class="num">${total}</div><div class="lbl">Logged</div></div>
-      <div class="stat-pill"><div class="num">${listened}</div><div class="lbl">Heard</div></div>
+      <div class="stat-pill"><div class="num">0</div><div class="lbl">Logged</div></div>
+      <div class="stat-pill"><div class="num">0</div><div class="lbl">Heard</div></div>
       <div class="stat-pill"><div class="num">${avgRating}</div><div class="lbl">Avg Rating</div></div>
     `;
+    const nums = document.querySelectorAll('#headerStats .num');
+    animateCountUp(nums[0], total);
+    animateCountUp(nums[1], listened);
   }
 
   // ── Tabs ───────────────────────────────────────────
@@ -1663,12 +1867,12 @@
   // attributes, which resolve identifiers against the global object —
   // so anything invoked that way has to be attached here explicitly.
   Object.assign(window, {
-    addRevisit, applySpotifyResult, cancelEdit, clearForm, closeGenreGallery,
+    addRevisit, applySpotifyResult, cancelEdit, clearFilterChip, clearForm, closeGenreGallery,
     closeReleaseModal, editRelease, exportData, hideOfflineBanner, importData,
     openArtworkModal, openGenreGallery, openReleaseModal, renderList,
     requestDeleteRelease, saveRelease, setFormRating, setViewMode, showTab, spotifySearch,
-    toggleAddForm, toggleFilterPanel, toggleListened, toggleOverflowMenu,
-    updateFilterSummary,
+    startFirstAdd, surpriseMe, toggleAddForm, toggleFilterPanel, toggleListened, toggleOverflowMenu,
+    updateFilterSummary, updateRatingInline,
   });
 
   // ── Init ───────────────────────────────────────────

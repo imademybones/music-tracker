@@ -213,6 +213,12 @@ header span {
   margin-bottom: 22px;
 }
 
+/* ---- v17: "Surprise me" alternate pick ---- */
+.surprise-btn{
+  margin-top: 10px;
+  margin-bottom: 22px;
+}
+
 .form-title {
   font-family: var(--font-display);
   font-size: 11px;
@@ -532,6 +538,29 @@ select option { background: var(--surface-2); }
   text-overflow: ellipsis;
 }
 
+/* ---- v17: rating + genre surfaced on the tile scrim itself ---- */
+.tile-rating {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+}
+.tile-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: rgba(255,255,255,0.25);
+}
+.tile-dot.filled { background: var(--gold); }
+.tile-genre {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 9px;
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.7);
+}
+
 /* ---- v8: grid/list view toggle ---- */
 .view-toggle {
   display: flex;
@@ -836,6 +865,10 @@ select option { background: var(--surface-2); }
 
 .card-dot.filled { background: var(--gold); }
 
+/* ---- v17: clickable rating dots inside the detail modal ---- */
+.card-rating.interactive .card-dot { cursor: pointer; transition: background 0.1s, transform 0.1s; }
+.card-rating.interactive .card-dot:hover { background: var(--gold-dim); }
+
 .card-listened-badge {
   font-size: 9px;
   font-family: var(--font-display);
@@ -928,6 +961,55 @@ select option { background: var(--surface-2); }
   font-family: var(--font-display);
   color: var(--text-dim);
   font-size: 13px;
+}
+
+/* ---- v17: empty-state entry point + loading skeleton ---- */
+.empty-state-icon {
+  font-size: 32px;
+  margin-bottom: 10px;
+  opacity: 0.6;
+}
+.empty-state .btn-primary {
+  margin-top: 16px;
+}
+
+.skeleton-tile {
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-tile {
+    background: linear-gradient(100deg, var(--surface-2) 30%, var(--surface) 50%, var(--surface-2) 70%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---- v17: microinteractions — all gated behind prefers-reduced-motion
+   so a "no-preference" visitor gets the polish and a "reduce" visitor
+   gets the exact same layout with zero motion. ---- */
+@media (prefers-reduced-motion: no-preference) {
+  .cover-loading { opacity: 0; }
+  .cover-loaded { opacity: 1; transition: opacity 0.2s; }
+
+  .release-tile, .release-card, .release-row {
+    transition: border-color 0.15s, transform 0.1s;
+  }
+  .release-tile:active, .release-card:active, .release-row:active {
+    transform: scale(0.98);
+  }
+
+  .hero-fade { animation: hero-fade-in 0.25s ease; }
+  @keyframes hero-fade-in {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 }
 
 /* STATS PAGE */
@@ -1038,6 +1120,45 @@ select option { background: var(--surface-2); }
   margin-left: 4px;
 }
 
+/* ---- v17: "Logged per Month" bar chart ---- */
+.month-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.month-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.month-bar-label {
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  width: 44px;
+  flex-shrink: 0;
+}
+.month-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.month-bar-fill {
+  height: 100%;
+  background: var(--gold);
+  border-radius: 2px;
+}
+.month-bar-count {
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 18px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 /* ---- v14: offline data-cache banner ---- */
 .offline-banner{
   display: flex;
@@ -1090,7 +1211,13 @@ select option { background: var(--surface-2); }
 /* RESPONSIVE */
 @media (max-width: 600px) {
   .form-row.two, .form-row.three { grid-template-columns: 1fr; }
-  .header-stats { display: none; }
+  /* v17: was display:none, hiding Logged/Heard/Avg Rating entirely on the
+     primary device this app is used on — wrap onto its own row and shrink
+     instead of hiding the data. */
+  header { flex-wrap: wrap; }
+  .header-stats { margin-left: 0; gap: 14px; }
+  .header-stats .stat-pill .num { font-size: 15px; }
+  .header-stats .stat-pill .lbl { font-size: 9px; }
   .filter-bar { gap: 6px; }
   .filter-bar input[type="text"] { max-width: 100%; }
 }
@@ -1186,7 +1313,35 @@ select option { background: var(--surface-2); }
 .filter-summary{
   font-size: 11px;
   color: var(--text-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
+
+/* ---- v17: removable filter chips (replaces plain "N active" text) ---- */
+.filter-chip{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 4px 2px 9px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.filter-chip button{
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px;
+  border-radius: 50%;
+}
+.filter-chip button:hover{ color: var(--text); background: var(--surface); }
 @media (max-width: 600px){
   .filter-toggle-row{ display: flex; }
   .filter-bar{ display: none; flex-direction: column; align-items: stretch; }
