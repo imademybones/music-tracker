@@ -3,7 +3,12 @@
 // instantly offline. Airtable/Spotify/iTunes requests are never cached and
 // always go straight to the network.
 
-const CACHE_NAME = 'music-tracker-shell-v1';
+// v17: bumped from v1 — the old cache could keep serving a stale lib/pure.js
+// (missing the new monthlyAddedCounts export) alongside a fresh index.html
+// that imports it, which throws a fatal module-load error and blanks the
+// whole page. Bumping the name forces activate() below to purge the old
+// cache instead of the cache-first fetch handler serving mismatched files.
+const CACHE_NAME = 'music-tracker-shell-v2';
 const SHELL_ASSETS = [
   './',
   'index.html',
