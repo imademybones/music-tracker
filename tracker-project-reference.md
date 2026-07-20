@@ -103,10 +103,17 @@ Setup:
   or every request looks like a fresh unauthenticated one (this cost a fair
   bit of confused debugging before the actual root cause — an expired/never-
   shared session, not a config bug — was spotted).
-- Verified working (pre-migration): loaded
-  `https://imademybones.github.io/music-tracker/` logged-in-in-the-same-window
-  and the real collection (74 releases) loaded correctly through the gate.
-  Needs re-verification post custom-domain-move (see below).
+- Changing the Access application's **Destination** (subdomain/domain)
+  invalidates any existing session — it doesn't carry over even if you're
+  still logged in against the old destination. After the 2026-07-20 move to
+  `api.foundfrequency.com`, the app just failed to load with no obvious
+  error until a **direct visit to `https://api.foundfrequency.com`** was
+  made first (shows the expected "Forbidden" page, see above, but forces the
+  Access login flow along the way); reloading the actual app afterward then
+  worked. Do this direct-visit-first step any time the Destination changes.
+- Verified working post custom-domain-move (2026-07-20): loaded
+  `https://foundfrequency.com` and the real collection loaded correctly
+  through the gate, same-site cookie and all.
 
 ### Custom domain move (2026-07-20)
 
