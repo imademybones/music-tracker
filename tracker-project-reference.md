@@ -18,9 +18,10 @@ Notes `fld8tP07c7BvdpuqL`, Listened `fldR0FgAZ9Gaf3cKn`, Revisits
 
 ## Cloudflare Worker
 
-Deployed at `https://music-tracker.stephen-nolan85.workers.dev`
-(file `music-tracker-worker-v2.js`), pasted directly into the Cloudflare
-dashboard — not part of this repo/deploy.
+Deployed at `https://api.foundfrequency.com` (custom domain added 2026-07-20;
+previously `https://music-tracker.stephen-nolan85.workers.dev`, still reachable
+as the underlying workers.dev hostname), file `music-tracker-worker-v2.js`,
+pasted directly into the Cloudflare dashboard — not part of this repo/deploy.
 
 Env vars: `AIRTABLE_TOKEN` (encrypted), `BASE_ID`, `TABLE_NAME` (`Releases`),
 `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` (encrypted),
@@ -34,9 +35,10 @@ Routes:
   (`POST https://content.airtable.com/v0/{baseId}/{recordId}/{fieldId}/uploadAttachment`)
   for the manual artwork file-upload path (added v10)
 
-CORS is restricted to `Access-Control-Allow-Origin: https://imademybones.github.io`.
-This Origin check is spoofable outside a browser — see Cloudflare Access below
-for the real access-control layer.
+CORS is restricted to `Access-Control-Allow-Origin: https://foundfrequency.com`
+(changed 2026-07-20 from `https://imademybones.github.io` — see "Custom domain
+move" below). This Origin check is spoofable outside a browser — see
+Cloudflare Access below for the real access-control layer.
 
 ## Cloudflare Access (go-live gate)
 
@@ -55,8 +57,10 @@ Setup:
 
 1. Zero Trust → Access → Applications → team name `falling-disk-d589`.
 2. Self-hosted application "music-tracker", Destination: Subdomain
-   `music-tracker`, Domain `stephen-nolan85.workers.dev`, no path (covers the
-   whole Worker — `/spotify`, `/upload-attachment`, everything).
+   `api`, Domain `foundfrequency.com`, no path (covers the whole Worker —
+   `/spotify`, `/upload-attachment`, everything). Originally Subdomain
+   `music-tracker`, Domain `stephen-nolan85.workers.dev` — moved 2026-07-20,
+   see "Custom domain move" below.
 3. Policy "My email": Allow, Include → Emails → `stephen.nolan85@gmail.com`.
 4. Identity provider: only "Sign in with Cloudflare" is enabled by default
    (not "One-time PIN" as originally assumed) — fine for solo use since
@@ -85,26 +89,59 @@ Setup:
 
 **Caveats worth remembering:**
 
-- A direct browser visit to `https://music-tracker.stephen-nolan85.workers.dev`
-  will *always* show "Forbidden" even once logged in — that's expected,
-  it's the Worker's own `Origin` check rejecting a raw navigation (no
-  `Origin` header on a top-level GET), not an Access problem.
+- A direct browser visit to `https://api.foundfrequency.com` will *always*
+  show "Forbidden" even once logged in — that's expected, it's the Worker's
+  own `Origin` check rejecting a raw navigation (no `Origin` header on a
+  top-level GET), not an Access problem. (The old
+  `music-tracker.stephen-nolan85.workers.dev` hostname still reaches the same
+  Worker but is no longer gated by Access at all, since the Access
+  application's Destination moved to `api.foundfrequency.com` — don't rely on
+  it being protected.)
 - The Access session cookie is scoped normally — it does **not** persist
   across incognito vs. regular windows, or across separate incognito
   sessions. Login and app testing need to happen in the same window/profile,
   or every request looks like a fresh unauthenticated one (this cost a fair
   bit of confused debugging before the actual root cause — an expired/never-
   shared session, not a config bug — was spotted).
-- Verified working: loaded `https://imademybones.github.io/music-tracker/`
-  logged-in-in-the-same-window and the real collection (74 releases) loaded
-  correctly through the gate.
+- Verified working (pre-migration): loaded
+  `https://imademybones.github.io/music-tracker/` logged-in-in-the-same-window
+  and the real collection (74 releases) loaded correctly through the gate.
+  Needs re-verification post custom-domain-move (see below).
+
+### Custom domain move (2026-07-20)
+
+Front end and Worker were originally on unrelated registrable domains
+(`imademybones.github.io` and `stephen-nolan85.workers.dev`). Because the
+Access session cookie (`CF_Authorization`) is set on the Worker's domain,
+every Worker fetch from the front end was a **cross-site** credentialed
+request from the browser's point of view — third-party cookie blocking
+(Safari's cross-site tracking prevention, Chrome's third-party cookie
+blocking, ad-blocker/privacy extensions, and some corporate browser
+policies) silently drops the cookie on that request. The result looks like a
+normal network failure client-side (no `Cookie` header sent, Access replies
+403 with no CORS headers since the request never reached the Worker's own
+`corsHeaders()` logic, browser reports a CORS error) — easy to mistake for
+"the app/backend is down."
+
+Fix: bought `foundfrequency.com` and put both sides on subdomains of it —
+front end at the apex (`foundfrequency.com`, via GitHub Pages custom domain +
+`CNAME` file in this repo) and Worker at `api.foundfrequency.com` (via
+Workers & Pages → Custom Domains). Same registrable domain means the cookie
+is now same-site, not third-party, so it's sent regardless of cross-site
+cookie blocking. Changes required: DNS A records for the apex → GitHub
+Pages IPs (initially DNS-only/grey-cloud so GitHub could issue its TLS
+cert), Worker custom domain `api.foundfrequency.com`, Access application
+Destination updated to `api` / `foundfrequency.com`, Worker's
+`Access-Control-Allow-Origin` updated to `https://foundfrequency.com`, and
+`WORKER_URL` in `index.html` updated to match.
 
 ## Deploy
 
 `index.html` is deployed via GitHub Pages from this repo
-(`imademybones/music-tracker`). The Worker script is deployed separately by
-pasting into the Cloudflare dashboard — it is never generated from or checked
-into this repo.
+(`imademybones/music-tracker`), served at the custom domain
+`foundfrequency.com` (see `CNAME` file at repo root, added 2026-07-20). The
+Worker script is deployed separately by pasting into the Cloudflare
+dashboard — it is never generated from or checked into this repo.
 
 ## Changelog
 
