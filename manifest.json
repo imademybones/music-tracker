@@ -1,6 +1,6 @@
 {
-  "name": "Music Tracker",
-  "short_name": "Music Tracker",
+  "name": "Found Frequency",
+  "short_name": "Found Frequency",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
