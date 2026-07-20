@@ -274,6 +274,23 @@
   function closeOverflowMenu(){
     if(openOverflowId !== null){ openOverflowId = null; renderModal(); }
   }
+
+  // v19: flips the overflow menu to open upward when there isn't room below.
+  // The real constraint isn't the viewport — it's .modal-box's own bounding
+  // rect, since overflow-y:auto there computes overflow-x to 'auto' too (see
+  // the v14 comment on .modal-box), clipping anything that opens past the
+  // box's own height even when the viewport itself has room to spare. Runs
+  // after renderModal() has already put the (open) menu in the DOM, so
+  // getBoundingClientRect reflects real layout.
+  function positionOverflowMenu(){
+    const menu = document.querySelector('.overflow-menu.open');
+    if(!menu) return;
+    menu.classList.remove('flip-up');
+    const rect = menu.getBoundingClientRect();
+    const clipBox = menu.closest('.modal-box');
+    const limit = clipBox ? clipBox.getBoundingClientRect().bottom : window.innerHeight;
+    if(rect.bottom > limit) menu.classList.add('flip-up');
+  }
   document.addEventListener('click', function(e){
     if(openOverflowId !== null && !e.target.closest('.card-actions')){
       closeOverflowMenu();
@@ -1404,6 +1421,7 @@
         </div>
       </div>
     `;
+    positionOverflowMenu(); // v19
   }
 
   // ---- v9: Spotify link per release ----
@@ -1444,7 +1462,10 @@
             ${tags ? `<div class="card-meta">${tags}</div>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
-            <div class="card-rating interactive">${interactiveRatingDots(r.id, r.rating)}</div>
+            <div class="card-rating-row">
+              <div class="card-rating interactive">${interactiveRatingDots(r.id, r.rating)}</div>
+              <span class="rating-num">${r.rating || 0}/5</span>
+            </div>
             <span class="card-listened-badge ${badge.cls}">${badge.text}</span>
             <button class="revisit-btn" onclick="addRevisit('${r.id}')" title="Log a revisit" aria-label="Log a revisit">↺ ${r.revisits || 0}</button>
           </div>
@@ -1467,10 +1488,13 @@
   // v17: compact rating-dot row for the grid tile scrim, sized for the
   // tile footprint (not a reuse of .card-dot, which is styled for full-size
   // cards).
+  // v19: numeric "4/5" readout alongside the dots — dots alone only show
+  // relative fill, not the actual value at a glance.
   function tileRatingHtml(rating){
     if(!rating) return '';
     let html = '<div class="tile-rating">';
     for(let i = 1; i <= 5; i++) html += `<div class="tile-dot${i <= rating ? ' filled' : ''}"></div>`;
+    html += `<span class="tile-rating-num">${rating}/5</span>`;
     return html + '</div>';
   }
 
@@ -1496,14 +1520,21 @@
   }
 
   // v8: compact list row — status dot + artist/title only, no cover.
+  // v19: bring rating + first genre into the row too, so list view doesn't
+  // drop metadata that grid view shows on the tile scrim.
   function renderListRow(r){
     const status = releaseStatus(r);
+    const firstGenre = r.genre ? r.genre.split(',')[0].trim() : '';
     return `
       <div class="release-row" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
         <div class="release-row-dot status-${status}"></div>
         <div class="release-row-text">
           <span class="release-row-artist">${esc(r.artist)}</span>
           ${r.title ? `<span class="release-row-title">${esc(r.title)}</span>` : ''}
+        </div>
+        <div class="release-row-meta">
+          ${firstGenre ? `<span class="release-row-genre">${esc(firstGenre)}</span>` : ''}
+          ${r.rating ? `<div class="release-row-rating">${ratingDots(r.rating)}<span class="rating-num">${r.rating}/5</span></div>` : ''}
         </div>
       </div>`;
   }
@@ -1729,7 +1760,7 @@
     const avgRating = rated.length ? (rated.reduce((s, r) => s + r.rating, 0) / rated.length).toFixed(1) : '—';
     document.getElementById('headerStats').innerHTML = `
       <div class="stat-pill"><div class="num">0</div><div class="lbl">Logged</div></div>
-      <div class="stat-pill"><div class="num">0</div><div class="lbl">Heard</div></div>
+      <div class="stat-pill"><div class="num">0</div><div class="lbl">Listened</div></div>
       <div class="stat-pill"><div class="num">${avgRating}</div><div class="lbl">Avg Rating</div></div>
     `;
     const nums = document.querySelectorAll('#headerStats .num');

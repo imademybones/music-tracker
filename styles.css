@@ -214,9 +214,22 @@ header span {
 }
 
 /* ---- v17: "Surprise me" alternate pick ---- */
-.surprise-btn{
+/* v19: more visual weight — gold accent instead of plain ghost-button gray,
+   so it reads as a distinct secondary action rather than blending into
+   ordinary chrome buttons. Doubled-up class selector so it reliably beats
+   .btn-ghost's own (same-specificity) rules regardless of source order. */
+.btn-ghost.surprise-btn{
   margin-top: 10px;
   margin-bottom: 22px;
+  font-size: 13px;
+  padding: 10px 18px;
+  color: var(--gold);
+  border-color: var(--gold-dim);
+}
+.btn-ghost.surprise-btn:hover{
+  background: var(--surface-2);
+  border-color: var(--gold);
+  color: var(--gold);
 }
 
 .form-title {
@@ -560,6 +573,19 @@ select option { background: var(--surface-2); }
   text-transform: uppercase;
   color: rgba(255,255,255,0.7);
 }
+/* v19: numeric rating readout, reused on the tile scrim, list row, and modal */
+.tile-rating { align-items: center; }
+.tile-rating-num {
+  font-size: 9px;
+  font-family: var(--font-display);
+  color: rgba(255,255,255,0.7);
+  margin-left: 3px;
+}
+.rating-num {
+  font-size: 10px;
+  font-family: var(--font-display);
+  color: var(--text-muted);
+}
 
 /* ---- v8: grid/list view toggle ---- */
 .view-toggle {
@@ -633,6 +659,31 @@ select option { background: var(--surface-2); }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ---- v19: list-row metadata parity with the grid tile scrim (genre + rating) ---- */
+.release-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.release-row-genre {
+  font-size: 10px;
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  padding: 2px 7px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.release-row-rating {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 /* ---- v7: release detail modal ---- */
@@ -868,6 +919,13 @@ select option { background: var(--surface-2); }
 /* ---- v17: clickable rating dots inside the detail modal ---- */
 .card-rating.interactive .card-dot { cursor: pointer; transition: background 0.1s, transform 0.1s; }
 .card-rating.interactive .card-dot:hover { background: var(--gold-dim); }
+
+/* v19: numeric readout next to the modal's rating dots */
+.card-rating-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 .card-listened-badge {
   font-size: 9px;
@@ -1220,6 +1278,36 @@ select option { background: var(--surface-2); }
   .header-stats .stat-pill .lbl { font-size: 9px; }
   .filter-bar { gap: 6px; }
   .filter-bar input[type="text"] { max-width: 100%; }
+
+  /* ---- v19: mobile bottom-sheet modal — the detail modal is where every
+     release action lives (edit, remove, mark listened, revisit, rate), so
+     phones get a full-width slide-up sheet with bigger tap targets instead
+     of the desktop's centered floating box. .release-card is only ever
+     rendered inside this modal (see renderCardMarkup), so it's safe to
+     restyle here without touching any other view. ---- */
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal-shell { max-width: 100%; max-height: 90vh; }
+  .modal-box { max-height: 90vh; }
+  .modal-box .release-card {
+    border-radius: 12px 12px 0 0;
+    /* extra top clearance so card-top's rating/badge column (flex-end,
+       flush right) doesn't sit under the close button below */
+    padding: 44px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  .modal-close { top: 10px; right: 10px; }
+  .card-actions .btn-action, .card-actions .btn-overflow {
+    padding: 9px 14px;
+    font-size: 11px;
+  }
+  .overflow-menu button { padding: 12px 12px; font-size: 13px; }
+  .card-rating.interactive .card-dot { width: 20px; height: 20px; }
+}
+@media (max-width: 600px) and (prefers-reduced-motion: no-preference) {
+  .modal-box .release-card { animation: sheet-slide-up 0.22s ease; }
+  @keyframes sheet-slide-up {
+    from { transform: translateY(24px); opacity: 0.6; }
+    to { transform: translateY(0); opacity: 1; }
+  }
 }
 
 /* ---- v6: collapsible add-form disclosure ---- */
@@ -1278,6 +1366,16 @@ select option { background: var(--surface-2); }
   min-width: 140px;
 }
 .overflow-menu.open{ display: flex; }
+/* v19: flips upward when there's no room below in the viewport (see
+   positionOverflowMenu()) — keeps the v14 downward-opening default for the
+   common case, overriding only when the button sits near the bottom edge
+   of a scrolled modal. */
+.overflow-menu.flip-up{
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
 .overflow-menu button{
   background: none;
   border: none;
