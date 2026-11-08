@@ -829,9 +829,10 @@ select option { background: var(--surface-2); }
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: rgba(90,138,106,0.18);
-  color: var(--green);
+  background: var(--green);
+  color: #fff;
   font-size: 11px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
