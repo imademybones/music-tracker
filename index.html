@@ -1252,6 +1252,10 @@
     return friday;
   }
 
+  // v20: Spotify links for whatever the Friday box last rendered, so the
+  // "open all in Spotify" button doesn't need to re-filter releases itself.
+  let fridaySpotifyUrls = [];
+
   function renderFriday(){
     const slot = document.getElementById('fridaySlot');
     const friday = currentReleaseFriday();
@@ -1263,11 +1267,18 @@
         && d.getMonth() === friday.getMonth()
         && d.getDate() === friday.getDate();
     });
-    if(matches.length === 0){ slot.innerHTML = ''; return; }
+    if(matches.length === 0){ fridaySpotifyUrls = []; slot.innerHTML = ''; return; }
+    fridaySpotifyUrls = [...new Set(matches.map(spotifyUrlFor).filter(Boolean))];
     const label = `New releases: Friday ${friday.getDate()} ${MONTH_NAMES[friday.getMonth()]}`;
+    const playlistBtn = fridaySpotifyUrls.length
+      ? `<button class="btn-ghost spotify-playlist-btn" onclick="openFridayInSpotify()" title="Open each album on Spotify to add it to a playlist">▶ Open all in Spotify</button>`
+      : '';
     slot.innerHTML = `
       <div class="friday-box">
-        <div class="friday-tag">${esc(label)}</div>
+        <div class="friday-tag-row">
+          <div class="friday-tag">${esc(label)}</div>
+          ${playlistBtn}
+        </div>
         <div class="friday-list">
           ${matches.map(r => `
             <div class="friday-item" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
@@ -1281,6 +1292,36 @@
         </div>
       </div>
     `;
+  }
+
+  // v20: "build a playlist" for the Friday box's release date — there's no
+  // Spotify user-auth in this app (the Worker's Spotify proxy is Client
+  // Credentials, app-only), so this can't create a real playlist via the
+  // API. Instead it opens every release's Spotify link in its own tab so
+  // you can add each straight to a playlist from there, and falls back to
+  // copying the links if the browser blocks the pop-ups.
+  async function openFridayInSpotify(){
+    const urls = fridaySpotifyUrls;
+    if(!urls.length) return;
+    let opened = 0;
+    urls.forEach((url, i) => {
+      if(window.open(url, `ff_spotify_${i}`)) opened++;
+    });
+    if(opened === urls.length){
+      showToast(`Opened ${opened} album${opened === 1 ? '' : 's'} in Spotify — add each to your playlist from there.`);
+      return;
+    }
+    let copied = false;
+    try { await navigator.clipboard.writeText(urls.join('\n')); copied = true; } catch(e){ /* clipboard unavailable */ }
+    if(opened === 0){
+      showToast(copied
+        ? 'Your browser blocked the pop-ups — copied the Spotify links instead, paste them into your browser.'
+        : 'Your browser blocked the pop-ups — allow pop-ups for this site and try again.');
+    } else {
+      showToast(copied
+        ? `Opened ${opened} of ${urls.length} — your browser blocked the rest, so all links are copied too.`
+        : `Opened ${opened} of ${urls.length} — your browser blocked the rest.`);
+    }
   }
 
   // ---- v7: hybrid grid + detail modal ----
@@ -1428,13 +1469,21 @@
   // Exact album link when we have one (captured via the Spotify-assisted
   // add into the "Spotify URL" field); otherwise a best-effort Spotify
   // search for artist + title, so every release gets a working link.
-  function spotifyLinkHtml(r){
-    if(r.spotifyUrl){
-      return `<a class="spotify-badge" href="${esc(r.spotifyUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open album in Spotify">◉ Spotify ↗</a>`;
-    }
+  // v20: factored out of spotifyLinkHtml so the "open all in Spotify"
+  // action (Friday box) can reuse the same exact-link-or-search logic.
+  function spotifyUrlFor(r){
+    if(r.spotifyUrl) return r.spotifyUrl;
     const q = `${r.artist || ''} ${r.title || ''}`.trim();
     if(!q) return '';
-    return `<a class="spotify-badge search" href="https://open.spotify.com/search/${encodeURIComponent(q)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Search for this on Spotify">⌕ Spotify</a>`;
+    return `https://open.spotify.com/search/${encodeURIComponent(q)}`;
+  }
+
+  function spotifyLinkHtml(r){
+    const url = spotifyUrlFor(r);
+    if(!url) return '';
+    return r.spotifyUrl
+      ? `<a class="spotify-badge" href="${esc(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open album in Spotify">◉ Spotify ↗</a>`
+      : `<a class="spotify-badge search" href="${esc(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Search for this on Spotify">⌕ Spotify</a>`;
   }
 
   // Full card markup (rating, tags, notes, listened toggle, edit/•••remove
@@ -1901,7 +1950,7 @@
   Object.assign(window, {
     addRevisit, applySpotifyResult, cancelEdit, clearFilterChip, clearForm, closeGenreGallery,
     closeReleaseModal, editRelease, exportData, hideOfflineBanner, importData,
-    openArtworkModal, openGenreGallery, openReleaseModal, renderList,
+    openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, renderList,
     requestDeleteRelease, saveRelease, setFormRating, setViewMode, showTab, spotifySearch,
     startFirstAdd, surpriseMe, toggleAddForm, toggleFilterPanel, toggleListened, toggleOverflowMenu,
     updateFilterSummary, updateRatingInline,
