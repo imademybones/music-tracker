@@ -821,6 +821,21 @@ select option { background: var(--surface-2); }
   transition: background 0.15s;
 }
 .friday-item:hover { background: var(--surface-2); }
+/* v21: listened releases stay in the box, dimmed, with a tick instead of
+   dropping out — so the box still shows the whole week's drop. */
+.friday-item.is-listened { opacity: 0.55; }
+.friday-item-check {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(90,138,106,0.18);
+  color: var(--green);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .friday-cover {
   width: 40px;
   height: 40px;
@@ -841,7 +856,7 @@ select option { background: var(--surface-2); }
   color: var(--text-dim);
   flex-shrink: 0;
 }
-.friday-item-text { min-width: 0; }
+.friday-item-text { min-width: 0; flex: 1; }
 .friday-item-artist {
   font-family: var(--font-display);
   font-size: 12.5px;
