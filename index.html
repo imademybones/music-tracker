@@ -1259,16 +1259,19 @@
   function renderFriday(){
     const slot = document.getElementById('fridaySlot');
     const friday = currentReleaseFriday();
+    // v21: releases stay in the box once listened (marked with a green tick
+    // below) instead of dropping out — so the box keeps showing the whole
+    // week's drop until the next Friday replaces it, not just what's left.
     const matches = releases.filter(r => {
       const d = parseReleaseDate(r.year);
       return !!d
-        && !r.listened // v18: drop out once marked listened
         && d.getFullYear() === friday.getFullYear()
         && d.getMonth() === friday.getMonth()
         && d.getDate() === friday.getDate();
     });
     if(matches.length === 0){ fridaySpotifyUrls = []; slot.innerHTML = ''; return; }
-    fridaySpotifyUrls = [...new Set(matches.map(spotifyUrlFor).filter(Boolean))];
+    // v21: only the still-unlistened ones need a Spotify link to build a playlist from.
+    fridaySpotifyUrls = [...new Set(matches.filter(r => !r.listened).map(spotifyUrlFor).filter(Boolean))];
     const label = `New releases: Friday ${friday.getDate()} ${MONTH_NAMES[friday.getMonth()]}`;
     const playlistBtn = fridaySpotifyUrls.length
       ? `<button class="btn-ghost spotify-playlist-btn" onclick="openFridayInSpotify()" title="Open each album on Spotify to add it to a playlist">▶ Open all in Spotify</button>`
@@ -1281,12 +1284,13 @@
         </div>
         <div class="friday-list">
           ${matches.map(r => `
-            <div class="friday-item" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
+            <div class="friday-item${r.listened ? ' is-listened' : ''}" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}${r.listened ? ' (listened)' : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
               ${coverHtml(r, 'friday')}
               <div class="friday-item-text">
                 <div class="friday-item-artist">${esc(r.artist)}</div>
                 ${r.title ? `<div class="friday-item-title">${esc(r.title)}</div>` : ''}
               </div>
+              ${r.listened ? '<span class="friday-item-check" title="Listened">✓</span>' : ''}
             </div>
           `).join('')}
         </div>
