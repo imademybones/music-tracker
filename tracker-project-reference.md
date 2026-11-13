@@ -142,6 +142,23 @@ Destination updated to `api` / `foundfrequency.com`, Worker's
 `Access-Control-Allow-Origin` updated to `https://foundfrequency.com`, and
 `WORKER_URL` in `index.html` updated to match.
 
+## Spotify app (user login, v22)
+
+"Add to playlist" logs the user in to Spotify from the browser (Authorization
+Code + PKCE) — it does not go through the Worker. It can reuse the same
+Spotify app the Worker uses for search. Needed on that app in the Spotify
+developer dashboard:
+
+- Redirect URI `https://foundfrequency.com/` (exact, trailing slash). For
+  local testing add `http://127.0.0.1:8000/` as well (Spotify allows http
+  only on loopback IPs, not `localhost`).
+- The Spotify account using it listed under User Management (Development
+  Mode), and the app owner on Premium.
+
+Scope requested: `playlist-modify-private`. The Client ID is either the
+`SPOTIFY_CLIENT_ID` constant in `index.html` or pasted once into the panel
+(stored in `localStorage` as `ffSpotifyClientId`).
+
 ## Deploy
 
 `index.html` is deployed via GitHub Pages from this repo
@@ -164,3 +181,6 @@ repo (Airtable schema, Worker routes/env vars).
   paste, "Remove override" to revert to the iTunes auto-lookup. Required a new
   `Cover Override` attachment field in Airtable and a new Worker route
   (`/upload-attachment`) + `COVER_OVERRIDE_FIELD_ID` env var, both added above.
+- **v22** — "Add to playlist" panel: tick releases in the list, push them to
+  Spotify as a new private playlist. No Airtable or Worker changes; needs a
+  Redirect URI added to the Spotify app (see "Spotify app" above).

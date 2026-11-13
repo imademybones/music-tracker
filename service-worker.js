@@ -56,7 +56,9 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        if (response && response.ok) {
+        // v22: never cache a URL with a query string — the Spotify login
+        // redirect lands on /?code=…, which shouldn't be kept around.
+        if (response && response.ok && !url.search) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         }
