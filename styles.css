@@ -1530,3 +1530,97 @@ a.spotify-badge{ text-decoration: none; cursor: pointer; transition: background 
 a.spotify-badge:hover{ background: rgba(90,138,106,0.28); }
 .spotify-badge.search{ color: var(--text-dim); background: var(--surface-2); }
 a.spotify-badge.search:hover{ color: var(--gold); }
+
+/* ---- v22: "Add to playlist" panel + select mode ---- */
+#addFormDisclosure { margin-bottom: 12px; }
+.playlist-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0 0 14px;
+}
+.playlist-btn-row { flex-wrap: wrap; align-items: center; }
+.playlist-btn-row .btn-primary:disabled { opacity: 0.5; cursor: default; }
+.playlist-count {
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+.playlist-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: 12px;
+}
+.playlist-status:empty { display: none; }
+.playlist-status.is-error { color: var(--red); }
+.playlist-status a, .playlist-setup a { color: var(--green); }
+.playlist-skipped { margin-top: 6px; color: var(--text-dim); }
+.playlist-setup {
+  border: 1px solid var(--gold-dim);
+  border-radius: 4px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.playlist-setup-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.playlist-setup ol { margin: 0 0 10px 18px; padding: 0; }
+.playlist-setup code {
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+.playlist-setup .spotify-search-row { margin-bottom: 0; }
+.playlist-setup-done { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Tick box: hidden unless the list is in select mode. */
+.select-check { display: none; }
+.select-mode .select-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1.5px solid var(--text);
+  background: rgba(0,0,0,0.55);
+  color: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+.select-mode .release-tile .select-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+}
+.select-mode .is-selected .select-check {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.select-mode .release-tile.is-selected,
+.select-mode .release-row.is-selected { border-color: var(--green); }
+.select-mode .release-tile.is-selected { box-shadow: 0 0 0 1px var(--green); }

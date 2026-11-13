@@ -27,6 +27,8 @@ Past iterations were built as `music-tracker-vN.html` and only renamed to `index
 - Airtable (the actual release database) — the Worker holds the Airtable token as a secret; the client never sees it.
 - Spotify Web API search (`/spotify` path, Client Credentials flow, app-only) — used for autofill when adding a release.
 
+**"Add to playlist" (v22) is the one feature that talks to Spotify directly, not through the Worker.** Creating a playlist needs a *user* token, which the Worker's Client Credentials proxy can't issue, so the browser does Authorization Code + PKCE against `accounts.spotify.com` (no secret) and then calls `api.spotify.com` itself (`/search`, `/albums/{id}/tracks`, `POST /me/playlists`, `POST /playlists/{id}/items` — the post-February-2026 endpoint names). The Client ID comes from the `SPOTIFY_CLIENT_ID` constant or, if blank, a one-time paste kept in `localStorage`; the short-lived access token is kept in `localStorage` too (no refresh token). The page URL must be registered as a Redirect URI on the Spotify app. Selection state (`playlistSelectMode`, `playlistSelected`) follows the same module-variable pattern as everything else; tile/row clicks route through `releaseItemClick()`.
+
 The Worker's source (`music-tracker-worker.js`) is deployed separately and is not part of this repository. When making changes that require new Airtable fields or new Spotify endpoints, the Worker will need corresponding updates outside this repo.
 
 Album cover art is fetched client-side directly from the iTunes Search API (`itunes.apple.com/search`), independent of the Worker, and cached in-memory in `coverCache` keyed by lowercase `"artist|||title"`.

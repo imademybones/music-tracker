@@ -122,6 +122,42 @@
       </div>
     </div>
 
+    <!-- v22: Add to playlist — ticking this open puts the release list below
+         into select mode; the chosen albums are pushed to Spotify as a new
+         private playlist (Spotify user login via PKCE, no Worker involved). -->
+    <div class="add-form collapsed" id="playlistDisclosure">
+      <div class="disclosure-head" tabindex="0" role="button" aria-expanded="false" aria-controls="playlistDisclosure" onclick="togglePlaylistPanel()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePlaylistPanel();}">
+        <div class="form-title" style="margin-bottom:0;">♫ Add to playlist</div>
+        <span class="disclosure-chevron">▾</span>
+      </div>
+
+      <div class="add-form-body">
+        <p class="playlist-hint">Tick the albums you want in the list below – filters and search still work, and your ticks are kept as you change them.</p>
+        <div id="playlistSetup"></div>
+        <div class="form-row two">
+          <div>
+            <label for="plName">Playlist name</label>
+            <input type="text" id="plName" placeholder="e.g. Very Aggressive Music 2026" maxlength="100">
+          </div>
+          <div>
+            <label for="plMode">Tracks to add</label>
+            <select id="plMode">
+              <option value="all">Whole albums</option>
+              <option value="first3">First 3 tracks of each</option>
+              <option value="first">First track of each</option>
+            </select>
+          </div>
+        </div>
+        <div class="btn-row playlist-btn-row">
+          <button class="btn-primary" id="plCreateBtn" onclick="createSpotifyPlaylist()">Create Spotify playlist</button>
+          <button class="btn-ghost" onclick="selectAllShownForPlaylist()">Select all shown</button>
+          <button class="btn-ghost" onclick="clearPlaylistSelection()">Clear</button>
+          <span class="playlist-count" id="plCount"></span>
+        </div>
+        <div class="playlist-status" id="playlistStatus" aria-live="polite"></div>
+      </div>
+    </div>
+
     <!-- FILTERS -->
     <div class="filter-toggle-row">
       <button class="filter-toggle-btn" onclick="toggleFilterPanel()" id="filterToggleBtn">Filters ▾</button>
@@ -210,6 +246,10 @@
     spotifyDateToIso,
     formatFromSpotifyAlbumType,
     monthlyAddedCounts,
+    spotifyAlbumIdFromUrl,
+    pickBestAlbum,
+    pickTrackUris,
+    chunkArray,
   } from './lib/pure.js';
 
   // ── State ──────────────────────────────────────────
@@ -1328,6 +1368,401 @@
     }
   }
 
+  // ---- v22: "Add to playlist" ----
+  // Opening the panel puts the release list into select mode (tiles/rows
+  // toggle a tick instead of opening the detail modal). "Create Spotify
+  // playlist" then resolves each ticked release to a Spotify album, collects
+  // its tracks, and creates a private playlist on the user's account.
+  //
+  // Creating a playlist needs a *user* token, which the Worker's Client
+  // Credentials proxy can't supply — so this talks to Spotify directly from
+  // the browser using Authorization Code + PKCE (no client secret involved).
+  // The Client ID is public by design; set it here, or leave blank and paste
+  // it into the panel once per browser (kept in localStorage). The redirect
+  // URI shown in the panel must be registered on the Spotify app.
+  const SPOTIFY_CLIENT_ID = '';
+  const SPOTIFY_SCOPES = 'playlist-modify-private';
+  const SPOTIFY_API = 'https://api.spotify.com/v1';
+  const SPOTIFY_REDIRECT_URI = new URL('./', location.origin + location.pathname).href;
+  const PL_KEYS = {
+    clientId: 'ffSpotifyClientId',
+    token: 'ffSpotifyToken',       // { accessToken, expiresAt } — ~1h, no refresh token kept
+    verifier: 'ffSpotifyPkceVerifier',
+    state: 'ffSpotifyPkceState',
+    job: 'ffPlaylistJob',          // selection + name + mode, so a login round-trip can resume
+  };
+
+  let playlistSelectMode = false;
+  const playlistSelected = new Set();
+  let playlistBusy = false;
+  let playlistJustAuthed = false;
+  let playlistEditingClientId = false;
+
+  function spotifyClientId(){
+    return SPOTIFY_CLIENT_ID || localStorage.getItem(PL_KEYS.clientId) || '';
+  }
+
+  function togglePlaylistPanel(force){
+    const el = document.getElementById('playlistDisclosure');
+    const open = typeof force === 'boolean' ? force : el.classList.contains('collapsed');
+    el.classList.toggle('collapsed', !open);
+    el.querySelector('.disclosure-head').setAttribute('aria-expanded', String(open));
+    playlistSelectMode = open;
+    renderPlaylistSetup();
+    updatePlaylistPanel();
+    renderList();
+  }
+
+  // Tiles and rows route their click through here: select mode toggles the
+  // tick in place (no full renderList(), which would re-fade every cover).
+  function releaseItemClick(id){
+    if(!playlistSelectMode){ openReleaseModal(id); return; }
+    if(playlistBusy) return;
+    if(playlistSelected.has(id)) playlistSelected.delete(id); else playlistSelected.add(id);
+    const on = playlistSelected.has(id);
+    document.querySelectorAll(`#releaseList [data-rid="${id}"]`).forEach(el => {
+      el.classList.toggle('is-selected', on);
+      el.setAttribute('aria-pressed', String(on));
+    });
+    updatePlaylistPanel();
+  }
+
+  // Everything the current filters show, minus releases that aren't out yet
+  // (nothing on Spotify to add). Individual upcoming tiles can still be ticked.
+  function selectAllShownForPlaylist(){
+    if(playlistBusy) return;
+    getFiltered().filter(r => releaseStatus(r) !== 'upcoming').forEach(r => playlistSelected.add(r.id));
+    updatePlaylistPanel();
+    renderList();
+  }
+  function clearPlaylistSelection(){
+    if(playlistBusy) return;
+    playlistSelected.clear();
+    updatePlaylistPanel();
+    renderList();
+  }
+
+  function updatePlaylistPanel(){
+    const n = playlistSelected.size;
+    const count = document.getElementById('plCount');
+    if(count) count.textContent = n ? `${n} album${n === 1 ? '' : 's'} selected` : 'Nothing selected yet';
+    const btn = document.getElementById('plCreateBtn');
+    if(btn) btn.disabled = playlistBusy;
+  }
+
+  function setPlaylistStatus(html, isError){
+    const el = document.getElementById('playlistStatus');
+    if(!el) return;
+    el.className = 'playlist-status' + (isError ? ' is-error' : '');
+    el.innerHTML = html;
+  }
+
+  // One-time Spotify app setup (only shown until a Client ID is known).
+  function renderPlaylistSetup(){
+    const slot = document.getElementById('playlistSetup');
+    if(!slot) return;
+    const id = spotifyClientId();
+    if(id && !playlistEditingClientId){
+      slot.innerHTML = SPOTIFY_CLIENT_ID ? '' :
+        `<div class="playlist-setup-done">Spotify app connected. <button type="button" class="link-btn" onclick="editSpotifyClientId()">Change Client ID</button></div>`;
+      return;
+    }
+    slot.innerHTML = `
+      <div class="playlist-setup">
+        <div class="playlist-setup-title">One-time Spotify setup</div>
+        <ol>
+          <li>In the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify developer dashboard</a>, open your app's settings and add this Redirect URI: <code>${esc(SPOTIFY_REDIRECT_URI)}</code></li>
+          <li>Copy the app's Client ID (not the secret) and paste it here.</li>
+        </ol>
+        <div class="spotify-search-row">
+          <input type="text" id="plClientId" placeholder="Spotify Client ID" value="${esc(id)}" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault(); saveSpotifyClientId();}">
+          <button class="btn-ghost" onclick="saveSpotifyClientId()">Save</button>
+        </div>
+      </div>`;
+  }
+  function editSpotifyClientId(){
+    playlistEditingClientId = true;
+    renderPlaylistSetup();
+  }
+  function saveSpotifyClientId(){
+    const value = document.getElementById('plClientId').value.trim();
+    if(!/^[0-9a-f]{32}$/i.test(value)){
+      showToast('That doesn\'t look like a Spotify Client ID (32 letters and numbers).');
+      return;
+    }
+    if(value !== localStorage.getItem(PL_KEYS.clientId)) localStorage.removeItem(PL_KEYS.token);
+    localStorage.setItem(PL_KEYS.clientId, value);
+    playlistEditingClientId = false;
+    renderPlaylistSetup();
+    showToast('Client ID saved.');
+  }
+
+  // ── Spotify login (Authorization Code + PKCE) ──
+  function randomUrlSafe(len){
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    return Array.from(crypto.getRandomValues(new Uint8Array(len)), b => chars[b % chars.length]).join('');
+  }
+  async function pkceChallenge(verifier){
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function spotifyAccessToken(){
+    try {
+      const t = JSON.parse(localStorage.getItem(PL_KEYS.token));
+      // 60s margin so a token doesn't expire between this check and the call.
+      if(t && t.accessToken && t.expiresAt > Date.now() + 60000) return t.accessToken;
+    } catch(e){ /* malformed — treat as signed out */ }
+    return '';
+  }
+
+  function savePlaylistJob(autorun){
+    localStorage.setItem(PL_KEYS.job, JSON.stringify({
+      ids: [...playlistSelected],
+      name: document.getElementById('plName').value,
+      mode: document.getElementById('plMode').value,
+      autorun: !!autorun,
+      savedAt: Date.now(),
+    }));
+  }
+
+  // Leaves the page for Spotify's consent screen; the selection is parked in
+  // localStorage first and picked back up by resumePlaylistJob() on return.
+  async function beginSpotifyLogin(){
+    const verifier = randomUrlSafe(64);
+    const state = randomUrlSafe(16);
+    localStorage.setItem(PL_KEYS.verifier, verifier);
+    localStorage.setItem(PL_KEYS.state, state);
+    savePlaylistJob(true);
+    const params = new URLSearchParams({
+      client_id: spotifyClientId(),
+      response_type: 'code',
+      redirect_uri: SPOTIFY_REDIRECT_URI,
+      scope: SPOTIFY_SCOPES,
+      state,
+      code_challenge_method: 'S256',
+      code_challenge: await pkceChallenge(verifier),
+    });
+    location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
+  }
+
+  // Runs once at startup: if Spotify just redirected back here, swap the
+  // ?code= for an access token and strip the query from the address bar.
+  async function handleSpotifyCallback(){
+    const params = new URLSearchParams(location.search);
+    if(!params.has('code') && !params.has('error')) return;
+    const state = params.get('state');
+    const expectedState = localStorage.getItem(PL_KEYS.state);
+    const verifier = localStorage.getItem(PL_KEYS.verifier);
+    localStorage.removeItem(PL_KEYS.state);
+    localStorage.removeItem(PL_KEYS.verifier);
+    history.replaceState(null, '', location.pathname + location.hash);
+    if(!expectedState || state !== expectedState) return; // not our round-trip
+    if(params.has('error')){
+      playlistAuthError = params.get('error') === 'access_denied'
+        ? 'Spotify login was cancelled — nothing was created.'
+        : `Spotify login failed (${params.get('error')}).`;
+      return;
+    }
+    try {
+      const res = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: spotifyClientId(),
+          grant_type: 'authorization_code',
+          code: params.get('code'),
+          redirect_uri: SPOTIFY_REDIRECT_URI,
+          code_verifier: verifier || '',
+        }),
+      });
+      if(!res.ok) throw new Error(`token exchange ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      localStorage.setItem(PL_KEYS.token, JSON.stringify({
+        accessToken: data.access_token,
+        expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
+      }));
+      playlistJustAuthed = true;
+    } catch(e){
+      console.error('Spotify token exchange failed:', e);
+      playlistAuthError = 'Spotify login didn\'t complete — check the Client ID and Redirect URI, then try again.';
+    }
+  }
+  let playlistAuthError = '';
+
+  // After the collection has loaded: restore a parked selection and, if we
+  // just came back from a successful login, carry on creating the playlist.
+  function resumePlaylistJob(){
+    let job = null;
+    try { job = JSON.parse(localStorage.getItem(PL_KEYS.job)); } catch(e){ /* ignore */ }
+    localStorage.removeItem(PL_KEYS.job);
+    if(!playlistJustAuthed && !playlistAuthError) return;
+    // A parked job older than 15 minutes isn't this login round-trip.
+    if(job && Date.now() - (job.savedAt || 0) < 15 * 60 * 1000){
+      (job.ids || []).forEach(id => { if(releases.some(r => r.id === id)) playlistSelected.add(id); });
+      document.getElementById('plName').value = job.name || '';
+      document.getElementById('plMode').value = job.mode || 'all';
+    } else {
+      job = null;
+    }
+    togglePlaylistPanel(true);
+    document.getElementById('playlistDisclosure').scrollIntoView({ block: 'start' });
+    if(playlistAuthError){ setPlaylistStatus(esc(playlistAuthError), true); return; }
+    if(job && job.autorun) createSpotifyPlaylist();
+  }
+
+  // ── Spotify Web API calls (user token) ──
+  class SpotifyError extends Error {
+    constructor(status, body){ super(`Spotify ${status}: ${body}`); this.status = status; }
+  }
+  async function spotifyFetch(pathOrUrl, options = {}){
+    const url = pathOrUrl.startsWith('http') ? pathOrUrl : SPOTIFY_API + pathOrUrl;
+    for(let attempt = 0; ; attempt++){
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${spotifyAccessToken()}`,
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        },
+      });
+      if(res.status === 429 && attempt < 4){
+        // Rate limited — Spotify says how long to wait. Give up on very long
+        // waits rather than leaving the panel apparently frozen.
+        const wait = Number(res.headers.get('Retry-After')) || 2;
+        if(wait > 60) throw new SpotifyError(429, `rate limited for ${wait}s`);
+        await new Promise(r => setTimeout(r, (wait + 1) * 1000));
+        continue;
+      }
+      if(!res.ok) throw new SpotifyError(res.status, await res.text());
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+  }
+
+  // Saved exact album link first; otherwise a strict artist+title search.
+  async function resolveSpotifyAlbumId(r){
+    const saved = spotifyAlbumIdFromUrl(r.spotifyUrl);
+    if(saved) return saved;
+    if(!r.artist || !r.title) return '';
+    const firstArtist = r.artist.split(/,|&/)[0].trim();
+    const queries = [`album:${r.title} artist:${firstArtist}`, `${firstArtist} ${r.title}`];
+    for(const q of queries){
+      const data = await spotifyFetch(`/search?type=album&limit=10&q=${encodeURIComponent(q)}`);
+      const hit = pickBestAlbum(r.artist, r.title, data && data.albums && data.albums.items);
+      if(hit) return hit.id;
+    }
+    return '';
+  }
+
+  async function spotifyAlbumTrackUris(albumId, mode){
+    const uris = [];
+    let next = `/albums/${albumId}/tracks?limit=50`;
+    while(next){
+      const page = await spotifyFetch(next);
+      (page.items || []).forEach(t => { if(t && t.uri) uris.push(t.uri); });
+      // Only whole-album mode ever needs more than the first page.
+      next = mode === 'all' ? page.next : null;
+    }
+    return pickTrackUris(uris, mode);
+  }
+
+  function releaseLabel(r){
+    return `${r.artist || '(no artist)'} — ${r.title || '(no title)'}`;
+  }
+
+  async function createSpotifyPlaylist(){
+    if(playlistBusy) return;
+    const name = document.getElementById('plName').value.trim();
+    const mode = document.getElementById('plMode').value;
+    // Release-date order (oldest first), so the playlist runs through the year.
+    const picked = releases.filter(r => playlistSelected.has(r.id)).sort((a, b) => {
+      const da = parseReleaseDate(a.year), db = parseReleaseDate(b.year);
+      return (da ? da.getTime() : 0) - (db ? db.getTime() : 0) || a.artist.localeCompare(b.artist);
+    });
+    if(!picked.length){ setPlaylistStatus('Tick at least one album in the list below first.', true); return; }
+    if(!name){ setPlaylistStatus('Give the playlist a name first.', true); document.getElementById('plName').focus(); return; }
+    if(!spotifyClientId()){ setPlaylistStatus('Add your Spotify Client ID above first.', true); return; }
+    if(!spotifyAccessToken()){
+      setPlaylistStatus('Taking you to Spotify to log in…');
+      await beginSpotifyLogin();
+      return;
+    }
+
+    playlistBusy = true;
+    updatePlaylistPanel();
+    try {
+      const uris = [];
+      const seen = new Set();
+      const skipped = [];
+      let albumCount = 0;
+      for(let i = 0; i < picked.length; i++){
+        const r = picked[i];
+        setPlaylistStatus(`Finding albums on Spotify… ${i + 1} of ${picked.length}`);
+        let albumId = '';
+        let trackUris = [];
+        try {
+          albumId = await resolveSpotifyAlbumId(r);
+          if(albumId) trackUris = await spotifyAlbumTrackUris(albumId, mode);
+        } catch(e){
+          // A single bad/removed album shouldn't sink the whole run; auth,
+          // permission and rate-limit failures should.
+          if(!(e instanceof SpotifyError) || [401, 403, 429].includes(e.status)) throw e;
+          console.error('Album lookup failed:', releaseLabel(r), e);
+        }
+        if(!trackUris.length){ skipped.push(r); continue; }
+        albumCount++;
+        trackUris.forEach(u => { if(!seen.has(u)){ seen.add(u); uris.push(u); } });
+      }
+      if(!uris.length){
+        setPlaylistStatus('None of the selected albums could be found on Spotify, so no playlist was created.', true);
+        return;
+      }
+
+      setPlaylistStatus('Creating the playlist…');
+      const playlist = await spotifyFetch('/me/playlists', {
+        method: 'POST',
+        body: JSON.stringify({ name, public: false, description: 'Built from Found Frequency' }),
+      });
+      const chunks = chunkArray(uris, 100); // Spotify caps additions at 100 per request
+      for(let i = 0; i < chunks.length; i++){
+        setPlaylistStatus(`Adding tracks… ${Math.min((i + 1) * 100, uris.length)} of ${uris.length}`);
+        await spotifyFetch(`/playlists/${playlist.id}/items`, { method: 'POST', body: JSON.stringify({ uris: chunks[i] }) });
+      }
+
+      const link = playlist.external_urls && playlist.external_urls.spotify;
+      const skippedHtml = skipped.length
+        ? `<div class="playlist-skipped">Couldn't find ${skipped.length} on Spotify: ${skipped.map(r => esc(releaseLabel(r))).join('; ')}</div>`
+        : '';
+      setPlaylistStatus(
+        `Created “${esc(name)}” — ${uris.length} track${uris.length === 1 ? '' : 's'} from ${albumCount} album${albumCount === 1 ? '' : 's'}.`
+        + (link ? ` <a href="${esc(link)}" target="_blank" rel="noopener">Open in Spotify ↗</a>` : '')
+        + skippedHtml);
+      showToast('Playlist created.');
+    } catch(e){
+      console.error('Playlist creation failed:', e);
+      if(e instanceof SpotifyError && e.status === 401 && !playlistJustAuthed){
+        // Token expired or was revoked mid-run — log in again and resume.
+        localStorage.removeItem(PL_KEYS.token);
+        setPlaylistStatus('Spotify login expired — taking you back to log in…');
+        await beginSpotifyLogin();
+        return;
+      }
+      const msg = e instanceof SpotifyError && e.status === 403
+        ? 'Spotify refused the request (403). In the Spotify developer dashboard, check your account is listed under the app\'s User Management and that the app owner has Premium.'
+        : e instanceof SpotifyError && e.status === 429
+          ? 'Spotify is rate-limiting this app right now — wait a few minutes and try again.'
+          : e instanceof SpotifyError && e.status === 401
+            ? 'Spotify rejected the login — check the Client ID, then try again.'
+            : 'Something went wrong talking to Spotify — check your connection and try again.';
+      if(e instanceof SpotifyError && e.status === 401) localStorage.removeItem(PL_KEYS.token);
+      setPlaylistStatus(esc(msg), true);
+    } finally {
+      playlistJustAuthed = false;
+      playlistBusy = false;
+      updatePlaylistPanel();
+    }
+  }
+
   // ---- v7: hybrid grid + detail modal ----
   // Which release's detail modal is open lives in this JS variable — the
   // same render-from-scratch pattern as openOverflowId/pendingRemoveId.
@@ -1551,6 +1986,15 @@
     return html + '</div>';
   }
 
+  // v22: select-mode markup shared by grid tiles and list rows (see the
+  // "Add to playlist" block) — a tick box that only shows in select mode.
+  function selectClass(r){
+    return playlistSelectMode && playlistSelected.has(r.id) ? ' is-selected' : '';
+  }
+  function selectAria(r){
+    return playlistSelectMode ? `aria-pressed="${playlistSelected.has(r.id)}" ` : '';
+  }
+
   // v8: grid tile — artwork background, bottom scrim, corner status dot.
   // v17: scrim also surfaces rating + first genre tag, previously only
   // visible after opening the detail modal.
@@ -1558,8 +2002,9 @@
     const status = releaseStatus(r);
     const firstGenre = r.genre ? r.genre.split(',')[0].trim() : '';
     return `
-      <div class="release-tile" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
+      <div class="release-tile${selectClass(r)}" data-rid="${r.id}" tabindex="0" role="button" ${selectAria(r)}aria-label="${playlistSelectMode ? 'Select' : 'Open'} ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="releaseItemClick('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();releaseItemClick('${r.id}');}">
         ${coverHtml(r, 'tile')}
+        <span class="select-check" aria-hidden="true">✓</span>
         <div class="tile-status-dot status-${status}"></div>
         <div class="tile-scrim">
           <div class="tile-text">
@@ -1579,7 +2024,8 @@
     const status = releaseStatus(r);
     const firstGenre = r.genre ? r.genre.split(',')[0].trim() : '';
     return `
-      <div class="release-row" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
+      <div class="release-row${selectClass(r)}" data-rid="${r.id}" tabindex="0" role="button" ${selectAria(r)}aria-label="${playlistSelectMode ? 'Select' : 'Open'} ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="releaseItemClick('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();releaseItemClick('${r.id}');}">
+        <span class="select-check" aria-hidden="true">✓</span>
         <div class="release-row-dot status-${status}"></div>
         <div class="release-row-text">
           <span class="release-row-artist">${esc(r.artist)}</span>
@@ -1607,7 +2053,7 @@
   function renderList() {
     const list = getFiltered();
     const container = document.getElementById('releaseList');
-    container.className = 'release-list' + (viewMode === 'list' ? ' view-list' : '');
+    container.className = 'release-list' + (viewMode === 'list' ? ' view-list' : '') + (playlistSelectMode ? ' select-mode' : ''); // v22
 
     if (list.length === 0) {
       // v17: the truly-empty case (no releases at all, not just filtered
@@ -1952,7 +2398,8 @@
   // attributes, which resolve identifiers against the global object —
   // so anything invoked that way has to be attached here explicitly.
   Object.assign(window, {
-    addRevisit, applySpotifyResult, cancelEdit, clearFilterChip, clearForm, closeGenreGallery,
+    addRevisit, applySpotifyResult, cancelEdit, clearFilterChip, clearForm, clearPlaylistSelection, closeGenreGallery,
+    createSpotifyPlaylist, editSpotifyClientId, releaseItemClick, saveSpotifyClientId, selectAllShownForPlaylist, togglePlaylistPanel,
     closeReleaseModal, editRelease, exportData, hideOfflineBanner, importData,
     openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, renderList,
     requestDeleteRelease, saveRelease, setFormRating, setViewMode, showTab, spotifySearch,
@@ -1962,7 +2409,9 @@
 
   // ── Init ───────────────────────────────────────────
   renderViewToggle();
-  loadReleases();
+  // v22: finish a Spotify login round-trip (if any) before loading, then
+  // restore the parked playlist selection once the collection is in.
+  handleSpotifyCallback().finally(() => loadReleases()).then(resumePlaylistJob);
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
