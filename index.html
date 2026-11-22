@@ -345,21 +345,19 @@
     if(openOverflowId !== null){ openOverflowId = null; renderModal(); }
   }
 
-  // v19: flips the overflow menu to open upward when there isn't room below.
-  // The real constraint isn't the viewport — it's .modal-box's own bounding
-  // rect, since overflow-y:auto there computes overflow-x to 'auto' too (see
-  // the v14 comment on .modal-box), clipping anything that opens past the
-  // box's own height even when the viewport itself has room to spare. Runs
-  // after renderModal() has already put the (open) menu in the DOM, so
-  // getBoundingClientRect reflects real layout.
+  // v19: flips the overflow menu to open upward when there isn't room below
+  // in the viewport. Runs after renderModal() has already put the (open)
+  // menu in the DOM, so getBoundingClientRect reflects real layout.
+  // v25: the release detail is a full page now (document scroll, no
+  // fixed-height .modal-box to clip against), so the viewport is the only
+  // constraint that matters — same check the genre gallery's cards never
+  // needed a workaround for.
   function positionOverflowMenu(){
     const menu = document.querySelector('.overflow-menu.open');
     if(!menu) return;
     menu.classList.remove('flip-up');
     const rect = menu.getBoundingClientRect();
-    const clipBox = menu.closest('.modal-box');
-    const limit = clipBox ? clipBox.getBoundingClientRect().bottom : window.innerHeight;
-    if(rect.bottom > limit) menu.classList.add('flip-up');
+    if(rect.bottom > window.innerHeight) menu.classList.add('flip-up');
   }
   document.addEventListener('click', function(e){
     if(openOverflowId !== null && !e.target.closest('.card-actions')){
@@ -1919,15 +1917,25 @@
       renderModal();
     }
   });
+  // v25: tracks whether the page is genuinely being opened vs. just
+  // re-rendered in place (rating change, toggling listened, the overflow
+  // menu, etc. all call renderModal() again while staying open) — the
+  // fade-in below should only ever play once per open, not on every one
+  // of those, since renderModal() always rebuilds the DOM from scratch.
+  let lastRenderedModalId = null;
   function renderModal(){
     const slot = document.getElementById('modalSlot');
-    if(!openModalId){ slot.innerHTML = ''; return; }
+    if(!openModalId){ slot.innerHTML = ''; lastRenderedModalId = null; return; }
     const r = releases.find(x => x.id === openModalId);
-    if(!r){ openModalId = null; slot.innerHTML = ''; return; }
+    if(!r){ openModalId = null; slot.innerHTML = ''; lastRenderedModalId = null; return; }
+    const freshOpen = openModalId !== lastRenderedModalId;
+    lastRenderedModalId = openModalId;
+    // A full page, not a pop-up — no click-outside-to-dismiss (there's no
+    // "outside" on a page), just the back button below.
     slot.innerHTML = `
-      <div class="modal-overlay" onclick="if(event.target===this) closeReleaseModal()">
+      <div class="modal-overlay${freshOpen ? ' page-enter' : ''}">
         <div class="modal-shell">
-          <button class="modal-close" onclick="closeReleaseModal()" title="Close" aria-label="Close">✕</button>
+          <button class="page-back-btn" onclick="closeReleaseModal()">&larr; Back</button>
           <div class="modal-box">
             ${renderCardMarkup(r)}
           </div>
@@ -1982,7 +1990,7 @@
             </div>
             ${tags ? `<div class="card-meta">${tags}</div>` : ''}
           </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+          <div class="card-side">
             <div class="card-rating-row">
               ${interactiveRatingInput(r.id, r.rating)}
             </div>

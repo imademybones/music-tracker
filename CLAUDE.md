@@ -39,13 +39,15 @@ Album cover art is fetched client-side directly from the iTunes Search API (`itu
 
 **Chart tab (v24)** is a third top-level tab (`tabChart`/`renderChart()`) — a "rate your music"-style ranked list of every release with `rating > 0`, highest first (ties broken alphabetically by artist), with its own genre/decade/format filters independent of the Log tab's filter bar. It always ranks by rating; there's no separate sort control.
 
+**The release detail opens as a full page, not a pop-up (v25).** `openReleaseModal`/`closeReleaseModal`/`renderModal`/`openModalId` keep their original names (still wired to the same `#release/{id}` hash routing), but `.modal-overlay` now covers the viewport opaquely and scrolls with the document instead of centering a fixed-height, internally-scrolling box — that box's `overflow-y: auto` was clipping content (and the overflow-menu dropdown) on mobile. The back button is `.page-back-btn`, a new class — `.modal-close` (the small floating ✕) is still used as-is by the unrelated genre-gallery popup (`openGenreGallery`), which stays a real pop-up.
+
 **Release Date handling is defensive about legacy formats.** New entries are stored as ISO `YYYY-MM-DD` (native `<input type="date">`), but older records may hold legacy `dd/mm/yyyy` or bare-year strings from earlier versions. `normalizeToIso` / `parseReleaseDate` / `formatReleaseDateDisplay` all handle both — don't assume `r.year` is already ISO when reading it.
 
 **Status derivation is computed, not stored:** `releaseStatus(r)` returns `listened` / `upcoming` / `unlistened` based on the `listened` flag and whether the parsed release date is in the future. This drives border colors, badges, and the "Out This Friday" and hero-card sections — don't add a separate stored status field.
 
 **UI patterns to reuse, not reinvent:**
 - Destructive actions use an inline two-click confirm (click once to arm, click again within a timeout to commit) — see `requestDeleteRelease`/`pendingRemoveId` and the duplicate-add confirm in `saveRelease`/`pendingDuplicateKey`. A custom `showConfirmDialog()` promise-based dialog exists only for the bulk-import flow, which has no persistent button to attach a two-click confirm to.
-- The release detail modal (`renderModal`) renders the full card markup (`renderCardMarkup`); the grid tiles in `renderList` are a stripped-down summary that opens the modal on click. Actions (edit/delete/mark listened/revisit) only exist inside the modal, not on tiles.
+- The release detail view (`renderModal`, still so-named even though v25 made it a full page rather than a pop-up — see below) renders the full card markup (`renderCardMarkup`); the grid tiles in `renderList` are a stripped-down summary that opens it on click. Actions (edit/delete/mark listened/revisit) only exist there, not on tiles.
 - `esc()` must wrap any user-provided string interpolated into `innerHTML` (artist, title, genre, notes, etc.) to avoid XSS — every render path already does this; keep doing it for new fields.
 
 **Import/export** round-trips the full `releases` array as JSON (client-side download / file picker), independent of the Airtable Worker's own storage — export is a backup mechanism, not a sync mechanism. Airtable caps writes at 10 records per request, so `importData` batches in chunks of 10.
