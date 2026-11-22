@@ -33,7 +33,11 @@ The Worker's source (`music-tracker-worker.js`) is deployed separately and is no
 
 Album cover art is fetched client-side directly from the iTunes Search API (`itunes.apple.com/search`), independent of the Worker, and cached in-memory in `coverCache` keyed by lowercase `"artist|||title"`.
 
-**Data model.** A `release` object (see `recordToRelease`/`releaseToFields`) has: `id`, `artist`, `title`, `genre`, `year` (actually an ISO release date string, legacy name), `format`, `rating` (0–5), `notes`, `listened`, `revisits`, `addedAt`, `updatedAt`, `spotifyAdded`. These map 1:1 to Airtable field names (`Artist`, `Title`, `Genre`, `Release Date`, `Format`, `Rating`, `Notes`, `Listened`, `Revisits`, `Added At`, `Updated At`, `Spotify Added`).
+**Data model.** A `release` object (see `recordToRelease`/`releaseToFields`) has: `id`, `artist`, `title`, `genre`, `year` (actually an ISO release date string, legacy name), `format`, `rating` (0–100, v23 — was 0–5 star blocks through v22; the Airtable `Rating` field is a plain `number` with no range cap, so the scale change was frontend-only), `notes`, `listened`, `revisits`, `addedAt`, `updatedAt`, `spotifyAdded`. These map 1:1 to Airtable field names (`Artist`, `Title`, `Genre`, `Release Date`, `Format`, `Rating`, `Notes`, `Listened`, `Revisits`, `Added At`, `Updated At`, `Spotify Added`).
+
+**Rating is edited via a 0–100 slider + number input** (`setFormRating`/`updateFormRatingUI` in the add/edit form, `interactiveRatingInput` inline in the detail modal), not stars. Read-only displays (grid tile scrim, list row, Stats "Top Rated") use the shared `ratingBarHtml()` — a thin proportional bar plus the exact number — sized per context via the `.tile-rating-bar`/`.row-rating-bar`/`.stat-rating-bar` CSS variants.
+
+**Chart tab (v24)** is a third top-level tab (`tabChart`/`renderChart()`) — a "rate your music"-style ranked list of every release with `rating > 0`, highest first (ties broken alphabetically by artist), with its own genre/decade/format filters independent of the Log tab's filter bar. It always ranks by rating; there's no separate sort control.
 
 **Release Date handling is defensive about legacy formats.** New entries are stored as ISO `YYYY-MM-DD` (native `<input type="date">`), but older records may hold legacy `dd/mm/yyyy` or bare-year strings from earlier versions. `normalizeToIso` / `parseReleaseDate` / `formatReleaseDateDisplay` all handle both — don't assume `r.year` is already ISO when reading it.
 
