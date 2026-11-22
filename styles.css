@@ -348,29 +348,37 @@ textarea {
 select option { background: var(--surface-2); }
 
 /* RATING INPUT */
-.rating-field { }
-.rating-blocks {
+/* v23: 0-100 rating — slider + number input, replacing the old 5-block
+   star picker. Reused as-is (with .interactive for a little extra breathing
+   room) by the modal's inline rating editor. */
+.rating-scale-hint {
+  color: var(--text-dim);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.rating100 {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 10px;
   margin-top: 2px;
 }
 
-.rating-block {
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+.rating100 input[type="range"] {
+  flex: 1;
+  min-width: 100px;
+  accent-color: var(--gold);
   cursor: pointer;
-  border-radius: 2px;
-  transition: background 0.1s, border-color 0.1s;
 }
 
-.rating-block.filled {
-  background: var(--gold);
-  border-color: var(--gold);
+.rating100 input[type="number"] {
+  width: 56px;
+  flex-shrink: 0;
+  text-align: center;
 }
 
-.rating-block:hover { border-color: var(--gold-dim); }
+.rating100.interactive input[type="range"] { min-width: 80px; }
 
 /* LISTENED CHECKBOX */
 .check-row {
@@ -557,13 +565,26 @@ select option { background: var(--surface-2); }
   gap: 2px;
   margin-top: 4px;
 }
-.tile-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 1px;
-  background: rgba(255,255,255,0.25);
+/* ---- v23: shared proportional rating bar (0-100 scale), sized per
+   context via the .tile-rating-bar / .row-rating-bar / .stat-rating-bar
+   variants below ---- */
+.rating-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
-.tile-dot.filled { background: var(--gold); }
+.rating-bar-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.25);
+  overflow: hidden;
+}
+.rating-bar-fill {
+  height: 100%;
+  background: var(--gold);
+  border-radius: 2px;
+}
+.tile-rating-bar .rating-bar-track { width: 32px; }
 .tile-genre {
   display: inline-block;
   margin-top: 4px;
@@ -685,6 +706,7 @@ select option { background: var(--surface-2); }
   align-items: center;
   gap: 3px;
 }
+.row-rating-bar .rating-bar-track { width: 48px; }
 
 /* ---- v7: release detail modal ---- */
 .modal-overlay {
@@ -934,32 +956,12 @@ select option { background: var(--surface-2); }
 
 .meta-tag.format { color: var(--gold-dim); }
 
-.card-rating {
-  display: flex;
-  gap: 3px;
-  flex-shrink: 0;
-  align-items: flex-start;
-  padding-top: 2px;
-}
-
-.card-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 1px;
-  background: var(--border);
-}
-
-.card-dot.filled { background: var(--gold); }
-
-/* ---- v17: clickable rating dots inside the detail modal ---- */
-.card-rating.interactive .card-dot { cursor: pointer; transition: background 0.1s, transform 0.1s; }
-.card-rating.interactive .card-dot:hover { background: var(--gold-dim); }
-
-/* v19: numeric readout next to the modal's rating dots */
+/* v19/v23: row around the modal's inline rating editor */
 .card-rating-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .card-listened-badge {
@@ -1184,6 +1186,9 @@ select option { background: var(--surface-2); }
   font-size: 12px;
   color: var(--text-muted);
 }
+.stat-rating-bar { flex-shrink: 0; }
+.stat-rating-bar .rating-bar-track { width: 60px; }
+.stat-rating-bar .rating-num { font-family: var(--font-display); font-size: 12px; color: var(--text-muted); }
 
 /* ---- v12: genre breakdown as a clickable, weighted pill cloud
    (replaces the old static horizontal bars) ---- */
@@ -1335,7 +1340,7 @@ select option { background: var(--surface-2); }
     font-size: 11px;
   }
   .overflow-menu button { padding: 12px 12px; font-size: 13px; }
-  .card-rating.interactive .card-dot { width: 20px; height: 20px; }
+  .rating100.interactive input[type="range"] { min-width: 60px; }
 }
 @media (max-width: 600px) and (prefers-reduced-motion: no-preference) {
   .modal-box .release-card { animation: sheet-slide-up 0.22s ease; }
@@ -1480,6 +1485,98 @@ select option { background: var(--surface-2); }
   .filter-bar{ display: none; flex-direction: column; align-items: stretch; }
   .filter-bar.open{ display: flex; }
   .filter-bar select, .filter-bar input[type="text"]{ max-width: 100%; }
+}
+
+/* ---- v24: Chart tab — ranked list of rated releases ---- */
+.chart-filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.chart-filter-bar select { max-width: 150px; }
+.chart-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.chart-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chart-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.chart-row:hover { border-color: var(--border-hover); }
+
+.chart-rank {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold);
+  width: 26px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.chart-cover {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.chart-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chart-artist {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chart-title {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chart-score {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--gold);
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: right;
+}
+
+@media (max-width: 600px){
+  .chart-filter-bar { flex-direction: column; align-items: stretch; }
+  .chart-filter-bar select { max-width: 100%; }
+  .chart-count { margin-left: 0; }
 }
 
 /* ---- v6: Spotify-sourced badge ---- */
