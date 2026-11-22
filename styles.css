@@ -708,31 +708,49 @@ select option { background: var(--surface-2); }
 }
 .row-rating-bar .rating-bar-track { width: 48px; }
 
-/* ---- v7: release detail modal ---- */
+/* ---- v7: release detail view ----
+   v25: opens as a full page rather than a centered pop-up — the old
+   fixed-height, internally-scrolling box (.modal-box { max-height; overflow-y:
+   auto }) was clipping content (and the overflow-menu dropdown inside it) on
+   mobile. Full-page scroll removes the clipped scroll container entirely:
+   the overlay now covers the viewport opaquely and scrolls with the
+   document, same as a real page would. */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  background: var(--bg);
+  overflow-y: auto;
   z-index: 150;
 }
-/* v14: positioning wrapper around .modal-box so .modal-close can sit
-   just outside the box's corner without being clipped by the box's own
-   overflow-y: auto (overflow-y auto+visible-x resolves to clipping both
-   axes, which was cutting the close button off — see CLAUDE.md v14 note) */
 .modal-shell {
   position: relative;
-  max-width: 480px;
-  width: 100%;
-  max-height: 88vh;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 20px 20px calc(40px + env(safe-area-inset-bottom, 0px));
+  min-height: 100%;
 }
-.modal-box {
-  max-height: 88vh;
-  overflow-y: auto;
+.modal-box { }
+/* v25: a plain "back" button in the page flow, replacing the old small
+   floating ✕ that sat just outside the dialog's corner (see .modal-close,
+   still used as-is by the genre gallery's lightweight popup). */
+.page-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  margin-bottom: 16px;
+  cursor: pointer;
 }
+.page-back-btn:hover { color: var(--text); border-color: var(--border-hover); }
 .modal-close {
   position: absolute;
   top: -12px;
@@ -920,6 +938,14 @@ select option { background: var(--surface-2); }
 
 .card-main { flex: 1; min-width: 0; }
 
+.card-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .card-artist {
   font-family: var(--font-display);
   font-size: 13px;
@@ -1104,6 +1130,17 @@ select option { background: var(--surface-2); }
   @keyframes hero-fade-in {
     from { opacity: 0; transform: translateY(2px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* v25: release detail page fade-in, only on the render that actually
+     opens it (.page-enter, set by renderModal()) — every other re-render
+     while it's already open (rating change, listened toggle, overflow
+     menu...) rebuilds the same markup without that class, so it doesn't
+     replay the fade and flicker. */
+  .modal-overlay.page-enter { animation: page-fade-in 0.18s ease; }
+  @keyframes page-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 }
 
@@ -1319,21 +1356,11 @@ select option { background: var(--surface-2); }
   .filter-bar { gap: 6px; }
   .filter-bar input[type="text"] { max-width: 100%; }
 
-  /* ---- v19: mobile bottom-sheet modal — the detail modal is where every
-     release action lives (edit, remove, mark listened, revisit, rate), so
-     phones get a full-width slide-up sheet with bigger tap targets instead
-     of the desktop's centered floating box. .release-card is only ever
-     rendered inside this modal (see renderCardMarkup), so it's safe to
-     restyle here without touching any other view. ---- */
-  .modal-overlay { align-items: flex-end; padding: 0; }
-  .modal-shell { max-width: 100%; max-height: 90vh; }
-  .modal-box { max-height: 90vh; }
-  .modal-box .release-card {
-    border-radius: 12px 12px 0 0;
-    /* extra top clearance so card-top's rating/badge column (flex-end,
-       flush right) doesn't sit under the close button below */
-    padding: 44px 18px calc(20px + env(safe-area-inset-bottom, 0px));
-  }
+  /* v19/v25: the detail page is where every release action lives (edit,
+     remove, mark listened, revisit, rate) — phones get bigger tap targets
+     for all of them, same as the old bottom-sheet did. .modal-close here
+     is the genre gallery's popup close button (see .page-back-btn for the
+     release page's own back button, which doesn't need a mobile override). */
   .modal-close { top: 10px; right: 10px; }
   .card-actions .btn-action, .card-actions .btn-overflow {
     padding: 9px 14px;
@@ -1341,12 +1368,17 @@ select option { background: var(--surface-2); }
   }
   .overflow-menu button { padding: 12px 12px; font-size: 13px; }
   .rating100.interactive input[type="range"] { min-width: 60px; }
-}
-@media (max-width: 600px) and (prefers-reduced-motion: no-preference) {
-  .modal-box .release-card { animation: sheet-slide-up 0.22s ease; }
-  @keyframes sheet-slide-up {
-    from { transform: translateY(24px); opacity: 0.6; }
-    to { transform: translateY(0); opacity: 1; }
+  /* v25: .card-side (rating slider + listened badge + revisit button) is
+     ~160px+ wide — on a narrow phone that was squeezing .card-main down
+     to almost nothing, wrapping the artist/title one word per line. Drop
+     it onto its own full-width row below instead. */
+  .card-top { flex-wrap: wrap; }
+  .card-side {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 10px;
   }
 }
 
