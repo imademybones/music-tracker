@@ -21,7 +21,7 @@
      URL from before the last deploy, alongside an already-fresh index.html,
      which is exactly the "CSS rules for a brand new class don't exist yet"
      bug this bump fixes. Bump ?v= whenever a deploy changes styles.css. -->
-<link rel="stylesheet" href="styles.css?v=29">
+<link rel="stylesheet" href="styles.css?v=30">
 </head>
 <body>
 
@@ -29,6 +29,8 @@
   <h1>Found Frequency</h1>
   <span>Release Log</span>
   <div class="header-stats" id="headerStats"></div>
+  <!-- v30: browser notifications for today's releases — see renderNotifyToggle/setNotifyEnabled. -->
+  <button class="notify-toggle-btn" id="notifyToggleBtn" onclick="setNotifyEnabled(!notifyEnabled())"></button>
 </header>
 
 <div class="tabs">
@@ -299,7 +301,8 @@
     pickTrackUris,
     chunkArray,
     releasesToCsv,
-  } from './lib/pure.js?v=29'; // v29: same cache-busting as styles.css above
+    releasesDueOn,
+  } from './lib/pure.js?v=30'; // v30: same cache-busting as styles.css above
 
   // ── State ──────────────────────────────────────────
   // ---- v6: collapsible add-form ----
@@ -867,6 +870,7 @@
     renderList();
     updateHeaderStats();
     renderActiveTabData();
+    checkTodayReleaseNotifications();
     openHashModalIfPresent();
   }
 
@@ -897,6 +901,7 @@
     renderList();
     updateHeaderStats();
     renderActiveTabData();
+    checkTodayReleaseNotifications();
     showOfflineBanner(cache.cachedAt);
     openHashModalIfPresent();
     return true;
@@ -1539,7 +1544,9 @@
   const SPOTIFY_REDIRECT_URI = new URL('./', location.origin + location.pathname).href;
   const PL_KEYS = {
     clientId: 'ffSpotifyClientId',
-    token: 'ffSpotifyToken',       // { accessToken, expiresAt } — ~1h, no refresh token kept
+    token: 'ffSpotifyToken',       // v30: { accessToken, expiresAt, refreshToken } — Spotify's
+                                    // PKCE flow issues a refresh token without needing a client
+                                    // secret, same as the initial exchange — see refreshSpotifyToken.
     verifier: 'ffSpotifyPkceVerifier',
     state: 'ffSpotifyPkceState',
     job: 'ffPlaylistJob',          // selection + name + mode, so a login round-trip can resume
@@ -1672,6 +1679,53 @@
     return '';
   }
 
+  // v30: redeems a stored refresh token for a new access token — the PKCE
+  // flow issues one alongside the initial access token (see
+  // handleSpotifyCallback), redeemable with just the client_id, no secret
+  // needed, same as the initial exchange. Purely additive: if Spotify ever
+  // doesn't return one, or the refresh call itself fails, this just
+  // returns false and every call site falls back to the full
+  // beginSpotifyLogin() redirect exactly as before this existed.
+  async function refreshSpotifyToken(){
+    let t;
+    try { t = JSON.parse(localStorage.getItem(PL_KEYS.token)); } catch(e){ t = null; }
+    if(!t || !t.refreshToken) return false;
+    try {
+      const res = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: spotifyClientId(),
+          grant_type: 'refresh_token',
+          refresh_token: t.refreshToken,
+        }),
+      });
+      if(!res.ok) return false;
+      const data = await res.json();
+      localStorage.setItem(PL_KEYS.token, JSON.stringify({
+        accessToken: data.access_token,
+        expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
+        // Spotify may omit refresh_token on a refresh response, meaning the
+        // one already used is still valid — keep it in that case.
+        refreshToken: data.refresh_token || t.refreshToken,
+      }));
+      return true;
+    } catch(e){
+      console.error('Spotify token refresh failed:', e);
+      return false;
+    }
+  }
+
+  // v30: the access token if one's already valid, otherwise a refreshed
+  // one if a refresh token can get us one, otherwise '' — the one place
+  // spotifyFetch and createSpotifyPlaylist's pre-flight check need to look.
+  async function ensureSpotifyAccessToken(){
+    const current = spotifyAccessToken();
+    if(current) return current;
+    if(await refreshSpotifyToken()) return spotifyAccessToken();
+    return '';
+  }
+
   function savePlaylistJob(autorun){
     localStorage.setItem(PL_KEYS.job, JSON.stringify({
       ids: [...playlistSelected],
@@ -1737,6 +1791,7 @@
       localStorage.setItem(PL_KEYS.token, JSON.stringify({
         accessToken: data.access_token,
         expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
+        refreshToken: data.refresh_token || null, // v30
       }));
       playlistJustAuthed = true;
     } catch(e){
@@ -1774,10 +1829,14 @@
   async function spotifyFetch(pathOrUrl, options = {}){
     const url = pathOrUrl.startsWith('http') ? pathOrUrl : SPOTIFY_API + pathOrUrl;
     for(let attempt = 0; ; attempt++){
+      // v30: transparently refreshes an expired token via ensureSpotifyAccessToken()
+      // before every call — a 401 past this point means the refresh itself
+      // failed (or there was never a refresh token), so the catch in
+      // createSpotifyPlaylist() still falls back to a full re-login.
       const res = await fetch(url, {
         ...options,
         headers: {
-          Authorization: `Bearer ${spotifyAccessToken()}`,
+          Authorization: `Bearer ${await ensureSpotifyAccessToken()}`,
           ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         },
       });
@@ -1838,7 +1897,7 @@
     if(!picked.length){ setPlaylistStatus('Tick at least one album in the list below first.', true); return; }
     if(!name){ setPlaylistStatus('Give the playlist a name first.', true); document.getElementById('plName').focus(); return; }
     if(!spotifyClientId()){ setPlaylistStatus('Add your Spotify Client ID above first.', true); return; }
-    if(!spotifyAccessToken()){
+    if(!(await ensureSpotifyAccessToken())){
       setPlaylistStatus('Taking you to Spotify to log in…');
       await beginSpotifyLogin();
       return;
@@ -2549,6 +2608,88 @@
     animateCountUp(nums[1], listened);
   }
 
+  // ── Release-day notifications ───────────────────────
+  // v30: opt-in, foreground-only — fires while this tab is open and has
+  // just (re)loaded data. There's no push infrastructure here (no backend
+  // to hold a push subscription), so this can't notify once the tab or
+  // browser is closed; the value is "the first time you open the app on
+  // release day, get told," not a true background reminder.
+  const NOTIFY_KEY = 'musicTrackerNotifyEnabled';
+  const NOTIFIED_KEY = 'musicTrackerNotifiedIds';
+  function notifySupported(){ return typeof Notification !== 'undefined'; }
+  function notifyEnabled(){ return localStorage.getItem(NOTIFY_KEY) === '1'; }
+
+  function todayIso(){
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function alreadyNotified(id){
+    let list;
+    try { list = JSON.parse(localStorage.getItem(NOTIFIED_KEY)) || []; } catch(e){ list = []; }
+    return list.includes(id);
+  }
+  function markNotified(id){
+    let list;
+    try { list = JSON.parse(localStorage.getItem(NOTIFIED_KEY)) || []; } catch(e){ list = []; }
+    list.push(id);
+    localStorage.setItem(NOTIFIED_KEY, JSON.stringify(list.slice(-200))); // bounded
+  }
+
+  function renderNotifyToggle(){
+    const btn = document.getElementById('notifyToggleBtn');
+    if(!btn) return;
+    if(!notifySupported()){ btn.style.display = 'none'; return; }
+    btn.style.display = '';
+    const denied = Notification.permission === 'denied';
+    const on = notifyEnabled() && !denied;
+    btn.textContent = '🔔';
+    btn.classList.toggle('active', on);
+    btn.disabled = denied;
+    btn.title = denied
+      ? 'Notifications are blocked for this site in your browser settings.'
+      : on
+        ? 'Release-day notifications are on — click to turn off'
+        : 'Get a browser notification when something releases today (while this tab is open)';
+    btn.setAttribute('aria-pressed', String(on));
+  }
+
+  function setNotifyEnabled(wantOn){
+    if(!notifySupported()) return;
+    if(!wantOn){
+      localStorage.setItem(NOTIFY_KEY, '0');
+      renderNotifyToggle();
+      return;
+    }
+    if(Notification.permission === 'granted'){
+      localStorage.setItem(NOTIFY_KEY, '1');
+      renderNotifyToggle();
+      checkTodayReleaseNotifications();
+      return;
+    }
+    if(Notification.permission === 'denied'){ renderNotifyToggle(); return; }
+    // Must be a direct response to the click that got us here (it is) —
+    // browsers require a user gesture to show the permission prompt.
+    Notification.requestPermission().then(perm => {
+      localStorage.setItem(NOTIFY_KEY, perm === 'granted' ? '1' : '0');
+      renderNotifyToggle();
+      if(perm === 'granted') checkTodayReleaseNotifications();
+    });
+  }
+
+  // Called after every (re)load — each release+day combination only ever
+  // fires once (markNotified), so reloading doesn't re-notify.
+  function checkTodayReleaseNotifications(){
+    if(!notifySupported() || !notifyEnabled() || Notification.permission !== 'granted') return;
+    releasesDueOn(releases, todayIso()).filter(r => !alreadyNotified(r.id)).forEach(r => {
+      const n = new Notification('New release out today', {
+        body: [r.artist, r.title].filter(Boolean).join(' — ') || 'Open Found Frequency to see it.',
+        tag: 'ff-release-' + r.id,
+      });
+      n.onclick = () => { window.focus(); openReleaseModal(r.id); };
+      markNotified(r.id);
+    });
+  }
+
   // ── Tabs ───────────────────────────────────────────
   // v27: active tab now persists (localStorage) and is shareable via
   // #chart/#stats. Tab switches use replaceState, not pushState, so they
@@ -2750,7 +2891,7 @@
     createSpotifyPlaylist, editSpotifyClientId, filterByArtist, releaseItemClick, saveLogFilters, saveSpotifyClientId, selectAllShownForPlaylist, togglePlaylistPanel,
     closeReleaseModal, editRelease, exportCsv, exportData, hideOfflineBanner, importData,
     openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, jumpToMonth, renderChart, renderList,
-    requestDeleteRelease, saveRelease, setFormRating, setViewMode, showTab, spotifySearch, stepReleaseModal,
+    requestDeleteRelease, saveRelease, setFormRating, setViewMode, setNotifyEnabled, notifyEnabled, showTab, spotifySearch, stepReleaseModal,
     startFirstAdd, surpriseMe, toggleAddForm, toggleFilterPanel, toggleListened, toggleOverflowMenu,
     updateFilterSummary, updateRatingInline,
   });
@@ -2758,6 +2899,7 @@
   // ── Init ───────────────────────────────────────────
   renderViewToggle();
   restoreActiveTab(); // v27
+  renderNotifyToggle(); // v30
   // v22: finish a Spotify login round-trip (if any) before loading, then
   // restore the parked playlist selection once the collection is in.
   handleSpotifyCallback().finally(() => loadReleases()).then(resumePlaylistJob);

@@ -80,6 +80,25 @@ header span {
   text-transform: uppercase;
 }
 
+/* v30: release-day notification toggle — sits right after .header-stats
+   (which already carries margin-left:auto), so both stay right-aligned
+   together. Hidden entirely via JS when the Notification API isn't
+   available at all (see notifySupported/renderNotifyToggle). */
+.notify-toggle-btn{
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+  align-self: center;
+}
+.notify-toggle-btn:hover{ border-color: var(--border-hover); color: var(--text); }
+.notify-toggle-btn.active{ border-color: var(--gold-dim); color: var(--gold); background: rgba(201,168,76,0.12); }
+.notify-toggle-btn:disabled{ opacity: 0.4; cursor: not-allowed; }
+
 /* TABS */
 .tabs {
   display: flex;
