@@ -1383,6 +1383,10 @@ select option { background: var(--surface-2); }
   font-family: var(--font-display);
   font-size: 12px;
   padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 48px);
   opacity: 0;
   transform: translateY(8px);
   transition: all 0.2s;
@@ -1390,7 +1394,22 @@ select option { background: var(--surface-2); }
   z-index: 100;
 }
 
-.toast.show { opacity: 1; transform: translateY(0); }
+/* v29: pointer-events only turn on while shown, so a toast.show with an
+   action button (see showActionToast in index.html) is actually clickable. */
+.toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.toast-action{
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--gold-dim);
+  border-radius: 3px;
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toast-action:hover{ background: var(--surface-2); }
 
 /* EDIT MODE */
 .release-card.editing { border-color: var(--gold-dim); }
@@ -1826,3 +1845,7 @@ a.spotify-badge.search:hover{ color: var(--gold); }
 .select-mode .release-tile.is-selected,
 .select-mode .release-row.is-selected { border-color: var(--green); }
 .select-mode .release-tile.is-selected { box-shadow: 0 0 0 1px var(--green); }
+/* v29: "Add to playlist" select mode, extended to the Chart tab — the
+   check mark sits inline between the cover and the text (.chart-row is
+   already a flex row), no absolute positioning needed like the grid tile. */
+.select-mode .chart-row.is-selected { border-color: var(--green); }

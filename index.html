@@ -21,7 +21,7 @@
      URL from before the last deploy, alongside an already-fresh index.html,
      which is exactly the "CSS rules for a brand new class don't exist yet"
      bug this bump fixes. Bump ?v= whenever a deploy changes styles.css. -->
-<link rel="stylesheet" href="styles.css?v=28">
+<link rel="stylesheet" href="styles.css?v=29">
 </head>
 <body>
 
@@ -172,13 +172,13 @@
     </div>
     <div class="filter-bar" id="filterBar">
       <span class="filter-label">Filter:</span>
-      <input type="text" id="searchInput" placeholder="Artist, title, genre, or notes…" oninput="renderList(); updateFilterSummary(); saveLogFilters();">
-      <select id="filterListened" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
+      <input type="text" id="searchInput" placeholder="Artist, title, genre, or notes…" oninput="renderList(); saveLogFilters();">
+      <select id="filterListened" onchange="renderList(); saveLogFilters();">
         <option value="">All</option>
         <option value="yes">Listened</option>
         <option value="no">To Listen</option>
       </select>
-      <select id="filterFormat" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
+      <select id="filterFormat" onchange="renderList(); saveLogFilters();">
         <option value="">Any Format</option>
         <option>LP</option>
         <option>EP</option>
@@ -188,13 +188,13 @@
         <option>Demo</option>
         <option>Other</option>
       </select>
-      <select id="filterGenre" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
+      <select id="filterGenre" onchange="renderList(); saveLogFilters();">
         <option value="">Any Genre</option>
       </select>
-      <select id="filterDecade" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
+      <select id="filterDecade" onchange="renderList(); saveLogFilters();">
         <option value="">Any Decade</option>
       </select>
-      <select id="filterRating" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
+      <select id="filterRating" onchange="renderList(); saveLogFilters();">
         <option value="">Any Rating</option>
         <option value="90">90+</option>
         <option value="80">80+</option>
@@ -232,6 +232,7 @@
       <div style="display:flex;gap:6px;">
         <button class="btn-action" onclick="importData()" title="Import a backup JSON file">↑ Import</button>
         <button class="btn-action" onclick="exportData()" title="Download a backup JSON file">↓ Export</button>
+        <button class="btn-action" onclick="exportCsv()" title="Download a spreadsheet-friendly CSV (one-way — not for re-import)">↓ CSV</button>
       </div>
     </div>
     <div class="release-list" id="releaseList"></div>
@@ -297,7 +298,8 @@
     pickBestAlbum,
     pickTrackUris,
     chunkArray,
-  } from './lib/pure.js?v=28'; // v28: same cache-busting as styles.css above
+    releasesToCsv,
+  } from './lib/pure.js?v=29'; // v29: same cache-busting as styles.css above
 
   // ── State ──────────────────────────────────────────
   // ---- v6: collapsible add-form ----
@@ -356,7 +358,6 @@
   function clearFilterChip(id){
     document.getElementById(id).value = '';
     renderList();
-    updateFilterSummary();
     saveLogFilters();
   }
 
@@ -405,13 +406,11 @@
     closeReleaseModal();
     showTab('log');
     renderList();
-    updateFilterSummary();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function clearArtistFilter(){
     filterArtistValue = '';
     renderList();
-    updateFilterSummary();
   }
 
   // ---- v6: per-card overflow action menu ----
@@ -863,7 +862,6 @@
     }
     renderGenreFilters();
     restoreLogFilters();
-    updateFilterSummary();
     renderFriday();
     renderHero();
     renderList();
@@ -894,7 +892,6 @@
     releases = cache.releases;
     renderGenreFilters();
     restoreLogFilters();
-    updateFilterSummary();
     renderFriday();
     renderHero();
     renderList();
@@ -1143,7 +1140,17 @@
     spotifyUrlFromSearch = ''; // v9
   }
 
+  // v29: "Undo" toast — the record is already gone from Airtable by the
+  // time this shows (the two-click confirm already committed the DELETE),
+  // so Undo re-creates it from a snapshot taken just before deleting, via
+  // the same releaseToFields() a normal add uses. The restored record gets
+  // a new Airtable id — there's no resurrecting the old one — and the
+  // Cover Override/Cover Cache attachment fields aren't carried over
+  // (releaseToFields doesn't write those), so a restored release's artwork
+  // just re-resolves itself through the usual iTunes lookup.
+  let lastDeletedSnapshot = null;
   async function performDeleteRelease(id) {
+    const snapshot = releases.find(r => r.id === id);
     try {
       await airtableRequest(`${API_URL}?records[]=${id}`, { method: 'DELETE' });
       releases = releases.filter(r => r.id !== id);
@@ -1154,12 +1161,37 @@
     }
     closeOverflowMenu();
     if(openModalId === id) openModalId = null;
+    lastDeletedSnapshot = snapshot ? { ...snapshot } : null;
     renderGenreFilters();
     renderFriday();
     renderHero();
     renderList();
     updateHeaderStats();
-    showToast('Removed.');
+    const label = snapshot ? [snapshot.artist, snapshot.title].filter(Boolean).join(' — ') : '';
+    showActionToast(`Removed${label ? ' ' + esc(label) : ''}.`, 'Undo', undoLastDelete);
+  }
+
+  async function undoLastDelete(){
+    const snapshot = lastDeletedSnapshot;
+    if(!snapshot) return;
+    lastDeletedSnapshot = null;
+    try {
+      const data = await airtableRequest(API_URL, {
+        method: 'POST',
+        body: JSON.stringify({ records: [{ fields: releaseToFields(snapshot) }] })
+      });
+      releases.unshift(recordToRelease(data.records[0]));
+    } catch (e) {
+      console.error('Undo failed:', e);
+      showToast('Could not restore — check your connection and try again.');
+      return;
+    }
+    renderGenreFilters();
+    renderFriday();
+    renderHero();
+    renderList();
+    updateHeaderStats();
+    showToast('Restored.');
   }
 
   async function toggleListened(id) {
@@ -1534,14 +1566,17 @@
     renderList();
   }
 
-  // Tiles and rows route their click through here: select mode toggles the
-  // tick in place (no full renderList(), which would re-fade every cover).
+  // Tiles, rows, and (v29) chart rows all route their click through here:
+  // select mode toggles the tick in place (no full renderList()/renderChart(),
+  // which would re-fade every cover). Not scoped to #releaseList — the same
+  // release's [data-rid] element in #chartList needs the same toggle if
+  // it's also on screen, since there's one shared playlistSelected set.
   function releaseItemClick(id){
     if(!playlistSelectMode){ openReleaseModal(id); return; }
     if(playlistBusy) return;
     if(playlistSelected.has(id)) playlistSelected.delete(id); else playlistSelected.add(id);
     const on = playlistSelected.has(id);
-    document.querySelectorAll(`#releaseList [data-rid="${id}"]`).forEach(el => {
+    document.querySelectorAll(`[data-rid="${id}"]`).forEach(el => {
       el.classList.toggle('is-selected', on);
       el.setAttribute('aria-pressed', String(on));
     });
@@ -2229,6 +2264,11 @@
     const list = getFiltered();
     const container = document.getElementById('releaseList');
     container.className = 'release-list' + (viewMode === 'list' ? ' view-list' : '') + (playlistSelectMode ? ' select-mode' : ''); // v22
+    // v29: moved here (from being called alongside every renderList() call
+    // site individually) so the "N of M shown" count can never go stale —
+    // it depends on releases.length too, which changes on delete/undo/
+    // import, not just on a filter control's own onchange.
+    updateFilterSummary();
 
     if (list.length === 0) {
       // v17: the truly-empty case (no releases at all, not just filtered
@@ -2307,11 +2347,16 @@
     }).sort((a, b) => b.rating - a.rating || a.artist.localeCompare(b.artist));
   }
 
+  // v29: routes through releaseItemClick like tiles/rows, so ticking in
+  // "Add to playlist" select mode works from the chart too, not just the
+  // Log tab — the panel to start/finish that selection still only lives on
+  // the Log tab, but the tick itself is one shared playlistSelected set.
   function renderChartRow(r, rank) {
     return `
-      <div class="chart-row" data-rid="${r.id}" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
+      <div class="chart-row${selectClass(r)}" data-rid="${r.id}" tabindex="0" role="button" ${selectAria(r)}aria-label="${playlistSelectMode ? 'Select' : 'Open'} ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}" onclick="releaseItemClick('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();releaseItemClick('${r.id}');}">
         <span class="chart-rank">${rank}</span>
         <div class="chart-cover">${coverHtml(r, 'tile')}</div>
+        <span class="select-check" aria-hidden="true">✓</span>
         <div class="chart-row-text">
           <span class="chart-artist">${esc(r.artist)}</span>
           ${r.title ? `<span class="chart-title">${esc(r.title)}</span>` : ''}
@@ -2325,6 +2370,7 @@
     const count = document.getElementById('chartCount');
     if (count) count.textContent = `${list.length} rated release${list.length === 1 ? '' : 's'}`;
     const container = document.getElementById('chartList');
+    container.className = 'chart-list' + (playlistSelectMode ? ' select-mode' : ''); // v29
     container.innerHTML = list.length
       ? list.map((r, i) => renderChartRow(r, i + 1)).join('')
       : '<p style="color:var(--text-dim);font-family:var(--font-display);font-size:13px;">No rated releases match these filters yet.</p>';
@@ -2554,6 +2600,22 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
   }
+  // v29: a toast with an action button (e.g. "Undo") — kept separate from
+  // showToast() above, which always uses textContent (so plain status
+  // strings never need escaping). `messageHtml` here is HTML, so a caller
+  // interpolating user data (an artist name, say) must esc() it first.
+  function showActionToast(messageHtml, actionLabel, onAction, duration = 6000){
+    const t = document.getElementById('toast');
+    t.innerHTML = `<span>${messageHtml}</span><button type="button" class="toast-action">${esc(actionLabel)}</button>`;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    t.querySelector('.toast-action').onclick = () => {
+      t.classList.remove('show');
+      clearTimeout(toastTimer);
+      onAction();
+    };
+    toastTimer = setTimeout(() => t.classList.remove('show'), duration);
+  }
 
   // ── Revisit ───────────────────────────────────────
   async function addRevisit(id) {
@@ -2610,6 +2672,22 @@
     a.click();
     URL.revokeObjectURL(url);
     showToast('Backup downloaded.');
+  }
+
+  // v29: CSV export — a spreadsheet-friendly companion to the JSON backup
+  // above, which round-trips full app state but isn't meant for opening in
+  // a spreadsheet. One-way: there's no matching CSV import.
+  function exportCsv() {
+    const csv = releasesToCsv(releases);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const d = new Date();
+    a.download = `music-tracker-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('CSV downloaded.');
   }
 
   function importData() {
@@ -2670,7 +2748,7 @@
   Object.assign(window, {
     addRevisit, applySpotifyResult, cancelEdit, clearArtistFilter, clearFilterChip, clearForm, clearPlaylistSelection, closeGenreGallery,
     createSpotifyPlaylist, editSpotifyClientId, filterByArtist, releaseItemClick, saveLogFilters, saveSpotifyClientId, selectAllShownForPlaylist, togglePlaylistPanel,
-    closeReleaseModal, editRelease, exportData, hideOfflineBanner, importData,
+    closeReleaseModal, editRelease, exportCsv, exportData, hideOfflineBanner, importData,
     openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, jumpToMonth, renderChart, renderList,
     requestDeleteRelease, saveRelease, setFormRating, setViewMode, showTab, spotifySearch, stepReleaseModal,
     startFirstAdd, surpriseMe, toggleAddForm, toggleFilterPanel, toggleListened, toggleOverflowMenu,
