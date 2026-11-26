@@ -946,13 +946,21 @@ select option { background: var(--surface-2); }
   flex-shrink: 0;
 }
 
+/* v27: a real <button> now (see "see more by this artist" in index.html) —
+   reset the default button chrome so it still reads as plain card text. */
 .card-artist {
   font-family: var(--font-display);
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
   line-height: 1.3;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
 }
+.card-artist:hover, .card-artist:focus-visible { color: var(--gold); text-decoration: underline; }
 
 .card-title {
   font-family: var(--font-display);
@@ -1464,13 +1472,18 @@ select option { background: var(--surface-2); }
 .overflow-menu button.danger-item.confirming{ background: var(--red); color: #fff; }
 
 /* ---- v6: mobile filter sheet toggle ---- */
+/* v27: this row (and #filterSummary inside it, with the new match count)
+   now shows on desktop too — only .filter-toggle-btn itself (redundant
+   there, since the filter bar is already always expanded) stays
+   mobile-only, flipped below. */
 .filter-toggle-row{
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
 }
 .filter-toggle-btn{
+  display: none;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -1485,7 +1498,15 @@ select option { background: var(--surface-2); }
   color: var(--text-dim);
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+
+/* v27: "N of M shown" match count, ahead of the filter chips. */
+.filter-count{
+  font-family: var(--font-display);
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 
 /* ---- v17: removable filter chips (replaces plain "N active" text) ---- */
@@ -1513,7 +1534,7 @@ select option { background: var(--surface-2); }
 }
 .filter-chip button:hover{ color: var(--text); background: var(--surface); }
 @media (max-width: 600px){
-  .filter-toggle-row{ display: flex; }
+  .filter-toggle-btn{ display: block; }
   .filter-bar{ display: none; flex-direction: column; align-items: stretch; }
   .filter-bar.open{ display: flex; }
   .filter-bar select, .filter-bar input[type="text"]{ max-width: 100%; }
@@ -1528,6 +1549,7 @@ select option { background: var(--surface-2); }
   align-items: center;
 }
 .chart-filter-bar select { max-width: 150px; }
+.chart-filter-bar input[type="text"] { flex: 1; min-width: 140px; max-width: 220px; }
 .chart-count {
   margin-left: auto;
   font-size: 11px;
@@ -1607,7 +1629,7 @@ select option { background: var(--surface-2); }
 
 @media (max-width: 600px){
   .chart-filter-bar { flex-direction: column; align-items: stretch; }
-  .chart-filter-bar select { max-width: 100%; }
+  .chart-filter-bar select, .chart-filter-bar input[type="text"] { max-width: 100%; }
   .chart-count { margin-left: 0; }
 }
 

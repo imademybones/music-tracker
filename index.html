@@ -21,7 +21,7 @@
      URL from before the last deploy, alongside an already-fresh index.html,
      which is exactly the "CSS rules for a brand new class don't exist yet"
      bug this bump fixes. Bump ?v= whenever a deploy changes styles.css. -->
-<link rel="stylesheet" href="styles.css?v=26">
+<link rel="stylesheet" href="styles.css?v=27">
 </head>
 <body>
 
@@ -172,13 +172,13 @@
     </div>
     <div class="filter-bar" id="filterBar">
       <span class="filter-label">Filter:</span>
-      <input type="text" id="searchInput" placeholder="Artist, title, or genre…" oninput="renderList(); updateFilterSummary();">
-      <select id="filterListened" onchange="renderList(); updateFilterSummary();">
+      <input type="text" id="searchInput" placeholder="Artist, title, genre, or notes…" oninput="renderList(); updateFilterSummary(); saveLogFilters();">
+      <select id="filterListened" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
         <option value="">All</option>
         <option value="yes">Listened</option>
         <option value="no">To Listen</option>
       </select>
-      <select id="filterFormat" onchange="renderList(); updateFilterSummary();">
+      <select id="filterFormat" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
         <option value="">Any Format</option>
         <option>LP</option>
         <option>EP</option>
@@ -188,22 +188,26 @@
         <option>Demo</option>
         <option>Other</option>
       </select>
-      <select id="filterGenre" onchange="renderList(); updateFilterSummary();">
+      <select id="filterGenre" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
         <option value="">Any Genre</option>
       </select>
-      <select id="filterDecade" onchange="renderList(); updateFilterSummary();">
+      <select id="filterDecade" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
         <option value="">Any Decade</option>
       </select>
-      <select id="filterRating" onchange="renderList(); updateFilterSummary();">
+      <select id="filterRating" onchange="renderList(); updateFilterSummary(); saveLogFilters();">
         <option value="">Any Rating</option>
         <option value="90">90+</option>
         <option value="80">80+</option>
         <option value="70">70+</option>
         <option value="60">60+</option>
         <option value="50">50+</option>
+        <option value="40">40+</option>
+        <option value="30">30+</option>
+        <option value="20">20+</option>
+        <option value="10">10+</option>
         <option value="1">Rated</option>
       </select>
-      <select id="sortBy" onchange="renderList()">
+      <select id="sortBy" onchange="renderList(); saveLogFilters();">
         <option value="year-asc">Release Date ↑</option>
         <option value="year-desc">Release Date ↓</option>
         <option value="added-desc">Newest Added</option>
@@ -234,6 +238,7 @@
   <div id="tabChart" style="display:none">
     <div class="chart-filter-bar" id="chartFilterBar">
       <span class="filter-label">Filter:</span>
+      <input type="text" id="chartSearchInput" placeholder="Artist or title…" oninput="renderChart()">
       <select id="chartFilterGenre" onchange="renderChart()">
         <option value="">Any Genre</option>
       </select>
@@ -286,7 +291,7 @@
     pickBestAlbum,
     pickTrackUris,
     chunkArray,
-  } from './lib/pure.js?v=26'; // v26: same cache-busting as styles.css above
+  } from './lib/pure.js?v=27'; // v27: same cache-busting as styles.css above
 
   // ── State ──────────────────────────────────────────
   // ---- v6: collapsible add-form ----
@@ -322,6 +327,9 @@
     { id: 'filterDecade', label: (v, el) => el.options[el.selectedIndex].text },
     { id: 'filterRating', label: (v, el) => el.options[el.selectedIndex].text },
   ];
+  // v27: "N of M shown" ahead of the filter chips, so the match count is
+  // visible even with no filters active (and without opening the filter
+  // bar on mobile, since #filterSummary sits outside it).
   function updateFilterSummary(){
     const summary = document.getElementById('filterSummary');
     if(!summary) return;
@@ -329,12 +337,73 @@
       .map(c => ({ ...c, el: document.getElementById(c.id) }))
       .map(c => ({ ...c, value: c.el.value.trim ? c.el.value.trim() : c.el.value }))
       .filter(c => c.value);
-    summary.innerHTML = active.map(c =>
+    const countHtml = releases.length
+      ? `<span class="filter-count">${getFiltered().length} of ${releases.length} shown</span>`
+      : '';
+    const artistChip = filterArtistValue
+      ? `<span class="filter-chip">Artist: ${esc(filterArtistValue)}<button type="button" onclick="clearArtistFilter()" aria-label="Remove filter">✕</button></span>`
+      : '';
+    summary.innerHTML = countHtml + artistChip + active.map(c =>
       `<span class="filter-chip">${esc(c.label(c.value, c.el))}<button type="button" onclick="clearFilterChip('${c.id}')" aria-label="Remove filter">✕</button></span>`
     ).join('');
   }
   function clearFilterChip(id){
     document.getElementById(id).value = '';
+    renderList();
+    updateFilterSummary();
+    saveLogFilters();
+  }
+
+  // v27: persisted Log-tab filter/sort state — restored once the dynamic
+  // genre/decade <select> options exist (renderGenreFilters runs first),
+  // so a saved value has something to match against; a saved value with no
+  // matching option (e.g. a genre since removed) is silently dropped.
+  const LOG_FILTER_IDS = ['searchInput', 'filterListened', 'filterFormat', 'filterGenre', 'filterDecade', 'filterRating', 'sortBy'];
+  function saveLogFilters(){
+    const state = {};
+    LOG_FILTER_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if(el) state[id] = el.value;
+    });
+    localStorage.setItem('musicTrackerLogFilters', JSON.stringify(state));
+  }
+  function restoreLogFilters(){
+    let state;
+    try { state = JSON.parse(localStorage.getItem('musicTrackerLogFilters')); } catch(e){ state = null; }
+    if(!state) return;
+    LOG_FILTER_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if(!el || state[id] === undefined) return;
+      if(el.tagName === 'SELECT'){
+        if(Array.from(el.options).some(o => o.value === state[id])) el.value = state[id];
+      } else {
+        el.value = state[id];
+      }
+    });
+  }
+
+  // v27: "see more by this artist" — clicking the artist name on a
+  // release's detail page (the one place that text isn't already the
+  // click target for opening something else) drops the other Log-tab
+  // filters and shows just this artist's catalog. Exact match (same
+  // diacritic/case normalization as the free-text search), not substring,
+  // and deliberately NOT persisted — it's a momentary drill-down, not a
+  // standing preference, so a reload returns to whatever was saved.
+  let filterArtistValue = '';
+  function filterByArtist(name){
+    filterArtistValue = name || '';
+    ['searchInput', 'filterListened', 'filterFormat', 'filterGenre', 'filterDecade', 'filterRating'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.value = '';
+    });
+    closeReleaseModal();
+    showTab('log');
+    renderList();
+    updateFilterSummary();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function clearArtistFilter(){
+    filterArtistValue = '';
     renderList();
     updateFilterSummary();
   }
@@ -787,10 +856,13 @@
       return;
     }
     renderGenreFilters();
+    restoreLogFilters();
+    updateFilterSummary();
     renderFriday();
     renderHero();
     renderList();
     updateHeaderStats();
+    renderActiveTabData();
     openHashModalIfPresent();
   }
 
@@ -815,10 +887,13 @@
     if (!cache || !cache.releases) return false;
     releases = cache.releases;
     renderGenreFilters();
+    restoreLogFilters();
+    updateFilterSummary();
     renderFriday();
     renderHero();
     renderList();
     updateHeaderStats();
+    renderActiveTabData();
     showOfflineBanner(cache.cachedAt);
     openHashModalIfPresent();
     return true;
@@ -1211,7 +1286,10 @@
     const sort = document.getElementById('sortBy').value;
 
     let list = releases.filter(r => {
-      if (q && !normalizeForSearch(r.artist).includes(q) && !normalizeForSearch(r.title).includes(q) && !normalizeForSearch(r.genre).includes(q)) return false;
+      // v27: notes are searched too — a release's standout-track/context
+      // notes are often the only place the memorable detail lives.
+      if (q && !normalizeForSearch(r.artist).includes(q) && !normalizeForSearch(r.title).includes(q) && !normalizeForSearch(r.genre).includes(q) && !normalizeForSearch(r.notes).includes(q)) return false;
+      if (filterArtistValue && normalizeForSearch(r.artist) !== normalizeForSearch(filterArtistValue)) return false;
       if (fl === 'yes' && !r.listened) return false;
       if (fl === 'no' && r.listened) return false;
       if (ff && r.format !== ff) return false;
@@ -1991,7 +2069,7 @@
           ${coverHtml(r, 'card')}
           <div class="card-main">
             <div>
-              <span class="card-artist">${esc(r.artist)}</span>
+              <button type="button" class="card-artist" data-artist="${esc(r.artist)}" onclick="event.stopPropagation(); filterByArtist(this.dataset.artist)" title="See all ${esc(r.artist)} releases">${esc(r.artist)}</button>
               ${r.title ? `<span class="card-title">— ${esc(r.title)}</span>` : ''}
             </div>
             ${tags ? `<div class="card-meta">${tags}</div>` : ''}
@@ -2140,12 +2218,17 @@
   // first, with its own genre/decade/format filters — independent of the
   // Log tab's filter bar and sort order (a chart only ever ranks by rating).
   function getChartList() {
+    // v27: a search box, so finding one artist in a long ranked chart
+    // doesn't mean scrolling — same diacritic/case-insensitive match as
+    // the Log tab's search.
+    const q = normalizeForSearch(document.getElementById('chartSearchInput').value.trim());
     const fg = document.getElementById('chartFilterGenre').value;
     const fd = document.getElementById('chartFilterDecade').value;
     const ff = document.getElementById('chartFilterFormat').value;
 
     return releases.filter(r => {
       if (r.rating <= 0) return false;
+      if (q && !normalizeForSearch(r.artist).includes(q) && !normalizeForSearch(r.title).includes(q)) return false;
       if (fg && !(r.genre && r.genre.split(',').some(g => g.trim().toLowerCase() === fg))) return false;
       if (fd) {
         const d = parseReleaseDate(r.year);
@@ -2353,7 +2436,14 @@
   }
 
   // ── Tabs ───────────────────────────────────────────
+  // v27: active tab now persists (localStorage) and is shareable via
+  // #chart/#stats. Tab switches use replaceState, not pushState, so they
+  // don't clutter the back-button history — only the release detail
+  // page's #release/{id} does that (see openReleaseModal).
+  let activeTab = 'log';
+  const TAB_HASH = { chart: '#chart', stats: '#stats' };
   function showTab(tab) {
+    activeTab = tab;
     document.getElementById('tabLog').style.display = tab === 'log' ? '' : 'none';
     document.getElementById('tabChart').style.display = tab === 'chart' ? '' : 'none';
     document.getElementById('tabStats').style.display = tab === 'stats' ? '' : 'none';
@@ -2362,6 +2452,29 @@
     });
     if (tab === 'chart') renderChart();
     if (tab === 'stats') renderStats();
+    localStorage.setItem('musicTrackerActiveTab', tab);
+    if(!location.hash.startsWith('#release/')){
+      history.replaceState(null, '', TAB_HASH[tab] || (location.pathname + location.search));
+    }
+  }
+  // v27: on first load, a #chart/#stats hash wins (so the tab is
+  // shareable); otherwise fall back to the last tab saved to localStorage.
+  // A #release/{id} hash is left alone — openHashModalIfPresent() handles
+  // it once release data has loaded enough to validate the id, and the Log
+  // tab underneath is the right place for that page's Back button.
+  function restoreActiveTab(){
+    const h = location.hash;
+    if(h === '#chart' || h === '#stats'){ showTab(h.slice(1)); return; }
+    if(h.startsWith('#release/')) return;
+    const saved = localStorage.getItem('musicTrackerActiveTab');
+    if(saved === 'chart' || saved === 'stats') showTab(saved);
+  }
+  // v27: re-render whichever tab is active once release data has (re)loaded
+  // — loadReleases()/loadFromDataCache() already refresh the Log tab's own
+  // views unconditionally, but Chart/Stats only (re)render on tab switch.
+  function renderActiveTabData(){
+    if(activeTab === 'chart') renderChart();
+    else if(activeTab === 'stats') renderStats();
   }
 
   // ── Toast ──────────────────────────────────────────
@@ -2487,8 +2600,8 @@
   // attributes, which resolve identifiers against the global object —
   // so anything invoked that way has to be attached here explicitly.
   Object.assign(window, {
-    addRevisit, applySpotifyResult, cancelEdit, clearFilterChip, clearForm, clearPlaylistSelection, closeGenreGallery,
-    createSpotifyPlaylist, editSpotifyClientId, releaseItemClick, saveSpotifyClientId, selectAllShownForPlaylist, togglePlaylistPanel,
+    addRevisit, applySpotifyResult, cancelEdit, clearArtistFilter, clearFilterChip, clearForm, clearPlaylistSelection, closeGenreGallery,
+    createSpotifyPlaylist, editSpotifyClientId, filterByArtist, releaseItemClick, saveLogFilters, saveSpotifyClientId, selectAllShownForPlaylist, togglePlaylistPanel,
     closeReleaseModal, editRelease, exportData, hideOfflineBanner, importData,
     openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, renderChart, renderList,
     requestDeleteRelease, saveRelease, setFormRating, setViewMode, showTab, spotifySearch,
@@ -2498,6 +2611,7 @@
 
   // ── Init ───────────────────────────────────────────
   renderViewToggle();
+  restoreActiveTab(); // v27
   // v22: finish a Spotify login round-trip (if any) before loading, then
   // restore the parked playlist selection once the collection is in.
   handleSpotifyCallback().finally(() => loadReleases()).then(resumePlaylistJob);
