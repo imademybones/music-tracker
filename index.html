@@ -242,8 +242,8 @@
 
   <!-- CHART TAB -->
   <!-- v24: "rate your music"-style ranked chart of every rated release,
-       highest score first. Its own genre/decade/format filters, independent
-       of the Log tab's filter bar. -->
+       highest score first. Its own genre/year/format filters, independent
+       of the Log tab's filter bar. Defaults to the current year (v32). -->
   <div id="tabChart" style="display:none">
     <div class="chart-filter-bar" id="chartFilterBar">
       <span class="filter-label">Filter:</span>
@@ -251,8 +251,8 @@
       <select id="chartFilterGenre" onchange="renderChart()">
         <option value="">Any Genre</option>
       </select>
-      <select id="chartFilterDecade" onchange="renderChart()">
-        <option value="">Any Decade</option>
+      <select id="chartFilterYear" onchange="renderChart()">
+        <option value="">Any Year</option>
       </select>
       <select id="chartFilterFormat" onchange="renderChart()">
         <option value="">Any Format</option>
@@ -1283,6 +1283,17 @@
     return [...set].sort((a, b) => b - a);
   }
 
+  // v32: years that actually have a release — the Chart tab filters by a
+  // single year rather than the Log tab's broader decade filter.
+  function collectYears(){
+    const set = new Set();
+    releases.forEach(r => {
+      const d = parseReleaseDate(r.year);
+      if(d) set.add(d.getFullYear());
+    });
+    return [...set].sort((a, b) => b - a);
+  }
+
   // Fills a <select> with "Any ..." plus one option per entry, preserving
   // the current selection if it's still among the new options. Shared by
   // the Log tab's genre/decade filters and the Chart tab's own copies
@@ -1309,7 +1320,20 @@
 
     const decades = collectDecades().map(d => [d, `${d}s`]);
     fillFilterSelect(document.getElementById('filterDecade'), 'Any Decade', decades);
-    fillFilterSelect(document.getElementById('chartFilterDecade'), 'Any Decade', decades);
+
+    const years = collectYears().map(y => [y, String(y)]);
+    const yearSelect = document.getElementById('chartFilterYear');
+    fillFilterSelect(yearSelect, 'Any Year', years);
+    // v32: default the Chart tab to the current year, once per page load —
+    // after that, fillFilterSelect's own "preserve the current selection"
+    // behavior (above) takes over, so a later renderGenreFilters() call
+    // (e.g. after adding a release) doesn't stomp on a filter the user
+    // already changed.
+    if(!chartYearDefaulted){
+      const currentYear = String(new Date().getFullYear());
+      if(yearSelect && years.some(([y]) => String(y) === currentYear)) yearSelect.value = currentYear;
+      chartYearDefaulted = true;
+    }
   }
 
   // Diacritic-insensitive, case-insensitive comparison (e.g. "Sigur Ros"
@@ -2390,16 +2414,16 @@
     // the Log tab's search.
     const q = normalizeForSearch(document.getElementById('chartSearchInput').value.trim());
     const fg = document.getElementById('chartFilterGenre').value;
-    const fd = document.getElementById('chartFilterDecade').value;
+    const fy = document.getElementById('chartFilterYear').value;
     const ff = document.getElementById('chartFilterFormat').value;
 
     return releases.filter(r => {
       if (r.rating <= 0) return false;
       if (q && !normalizeForSearch(r.artist).includes(q) && !normalizeForSearch(r.title).includes(q)) return false;
       if (fg && !(r.genre && r.genre.split(',').some(g => g.trim().toLowerCase() === fg))) return false;
-      if (fd) {
+      if (fy) {
         const d = parseReleaseDate(r.year);
-        if (!d || String(Math.floor(d.getFullYear() / 10) * 10) !== fd) return false;
+        if (!d || String(d.getFullYear()) !== fy) return false;
       }
       if (ff && r.format !== ff) return false;
       return true;
@@ -2697,6 +2721,9 @@
   // page's #release/{id} does that (see openReleaseModal).
   let activeTab = 'log';
   const TAB_HASH = { chart: '#chart', stats: '#stats' };
+  // v32: whether the Chart tab's year filter has had its once-per-load
+  // current-year default applied yet — see renderGenreFilters().
+  let chartYearDefaulted = false;
   function showTab(tab) {
     activeTab = tab;
     document.getElementById('tabLog').style.display = tab === 'log' ? '' : 'none';
