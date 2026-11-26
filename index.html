@@ -193,8 +193,8 @@
       <select id="filterGenre" onchange="renderList(); saveLogFilters();">
         <option value="">Any Genre</option>
       </select>
-      <select id="filterDecade" onchange="renderList(); saveLogFilters();">
-        <option value="">Any Decade</option>
+      <select id="filterYear" onchange="renderList(); saveLogFilters();">
+        <option value="">Any Year</option>
       </select>
       <select id="filterRating" onchange="renderList(); saveLogFilters();">
         <option value="">Any Rating</option>
@@ -335,7 +335,7 @@
     { id: 'filterListened', label: (v) => v === 'yes' ? 'Listened' : 'To Listen' },
     { id: 'filterFormat', label: (v, el) => el.options[el.selectedIndex].text },
     { id: 'filterGenre', label: (v, el) => el.options[el.selectedIndex].text },
-    { id: 'filterDecade', label: (v, el) => el.options[el.selectedIndex].text },
+    { id: 'filterYear', label: (v, el) => el.options[el.selectedIndex].text },
     { id: 'filterRating', label: (v, el) => el.options[el.selectedIndex].text },
   ];
   // v27: "N of M shown" ahead of the filter chips, so the match count is
@@ -365,10 +365,13 @@
   }
 
   // v27: persisted Log-tab filter/sort state — restored once the dynamic
-  // genre/decade <select> options exist (renderGenreFilters runs first),
+  // genre/year <select> options exist (renderGenreFilters runs first),
   // so a saved value has something to match against; a saved value with no
-  // matching option (e.g. a genre since removed) is silently dropped.
-  const LOG_FILTER_IDS = ['searchInput', 'filterListened', 'filterFormat', 'filterGenre', 'filterDecade', 'filterRating', 'sortBy'];
+  // matching option (e.g. a genre since removed) is silently dropped. (The
+  // v33 filterYear rename also means an old saved 'filterDecade' value is
+  // silently dropped the same way, so the current-year default below kicks
+  // in for anyone who already had a filter saved before this change.)
+  const LOG_FILTER_IDS = ['searchInput', 'filterListened', 'filterFormat', 'filterGenre', 'filterYear', 'filterRating', 'sortBy'];
   function saveLogFilters(){
     const state = {};
     LOG_FILTER_IDS.forEach(id => {
@@ -402,7 +405,7 @@
   let filterArtistValue = '';
   function filterByArtist(name){
     filterArtistValue = name || '';
-    ['searchInput', 'filterListened', 'filterFormat', 'filterGenre', 'filterDecade', 'filterRating'].forEach(id => {
+    ['searchInput', 'filterListened', 'filterFormat', 'filterGenre', 'filterYear', 'filterRating'].forEach(id => {
       const el = document.getElementById(id);
       if(el) el.value = '';
     });
@@ -1273,18 +1276,9 @@
     return seen;
   }
 
-  // Decades that actually have a release (only show non-empty options).
-  function collectDecades(){
-    const set = new Set();
-    releases.forEach(r => {
-      const d = parseReleaseDate(r.year);
-      if(d) set.add(Math.floor(d.getFullYear() / 10) * 10);
-    });
-    return [...set].sort((a, b) => b - a);
-  }
-
-  // v32: years that actually have a release — the Chart tab filters by a
-  // single year rather than the Log tab's broader decade filter.
+  // v32/v33: years that actually have a release (only show non-empty
+  // options) — both the Log tab and Chart tab filter by a single year
+  // rather than a decade (the old collectDecades()/"Any Decade" filter).
   function collectYears(){
     const set = new Set();
     releases.forEach(r => {
@@ -1296,7 +1290,7 @@
 
   // Fills a <select> with "Any ..." plus one option per entry, preserving
   // the current selection if it's still among the new options. Shared by
-  // the Log tab's genre/decade filters and the Chart tab's own copies
+  // the Log tab's genre/year filters and the Chart tab's own copies
   // (v24) so both stay in sync with `releases` without duplicating this.
   function fillFilterSelect(select, anyLabel, entries){
     if(!select) return;
@@ -1306,7 +1300,7 @@
     select.value = entries.some(([value]) => String(value) === current) ? current : '';
   }
 
-  // Repopulates the genre datalist + genre/decade filter dropdowns (Log tab
+  // Repopulates the genre datalist + genre/year filter dropdowns (Log tab
   // and Chart tab) from the current `releases` — called anywhere releases
   // are added/removed/edited, same as the other render*() functions.
   function renderGenreFilters(){
@@ -1318,21 +1312,29 @@
     fillFilterSelect(document.getElementById('filterGenre'), 'Any Genre', tags);
     fillFilterSelect(document.getElementById('chartFilterGenre'), 'Any Genre', tags);
 
-    const decades = collectDecades().map(d => [d, `${d}s`]);
-    fillFilterSelect(document.getElementById('filterDecade'), 'Any Decade', decades);
-
     const years = collectYears().map(y => [y, String(y)]);
-    const yearSelect = document.getElementById('chartFilterYear');
-    fillFilterSelect(yearSelect, 'Any Year', years);
-    // v32: default the Chart tab to the current year, once per page load —
-    // after that, fillFilterSelect's own "preserve the current selection"
+    const logYearSelect = document.getElementById('filterYear');
+    const chartYearSelect = document.getElementById('chartFilterYear');
+    fillFilterSelect(logYearSelect, 'Any Year', years);
+    fillFilterSelect(chartYearSelect, 'Any Year', years);
+    // v32/v33: default both the Log tab's and the Chart tab's year filters
+    // to the current year, once per page load — a large collection is slow
+    // to render unfiltered, so this is the fast path by default. For the
+    // Log tab, restoreLogFilters() runs right after this and overrides it
+    // if a filter was already explicitly saved, so this only affects a
+    // fresh/first-time filter state (including right after this rename,
+    // since an old saved 'filterDecade' value no longer matches anything).
+    // After that, fillFilterSelect's own "preserve the current selection"
     // behavior (above) takes over, so a later renderGenreFilters() call
     // (e.g. after adding a release) doesn't stomp on a filter the user
-    // already changed.
-    if(!chartYearDefaulted){
+    // already changed this session.
+    if(!yearFilterDefaulted){
       const currentYear = String(new Date().getFullYear());
-      if(yearSelect && years.some(([y]) => String(y) === currentYear)) yearSelect.value = currentYear;
-      chartYearDefaulted = true;
+      if(years.some(([y]) => String(y) === currentYear)){
+        if(logYearSelect) logYearSelect.value = currentYear;
+        if(chartYearSelect) chartYearSelect.value = currentYear;
+      }
+      yearFilterDefaulted = true;
     }
   }
 
@@ -1348,7 +1350,7 @@
     const fl = document.getElementById('filterListened').value;
     const ff = document.getElementById('filterFormat').value;
     const fg = document.getElementById('filterGenre').value;
-    const fd = document.getElementById('filterDecade').value;
+    const fy = document.getElementById('filterYear').value;
     const fr = document.getElementById('filterRating').value;
     const sort = document.getElementById('sortBy').value;
 
@@ -1361,9 +1363,9 @@
       if (fl === 'no' && r.listened) return false;
       if (ff && r.format !== ff) return false;
       if (fg && !(r.genre && r.genre.split(',').some(g => g.trim().toLowerCase() === fg))) return false;
-      if (fd) {
+      if (fy) {
         const d = parseReleaseDate(r.year);
-        if (!d || String(Math.floor(d.getFullYear() / 10) * 10) !== fd) return false;
+        if (!d || String(d.getFullYear()) !== fy) return false;
       }
       if (fr && r.rating < Number(fr)) return false;
       return true;
@@ -2406,7 +2408,7 @@
 
   // ── Chart (v24) ────────────────────────────────────
   // "Rate your music"-style ranking: every rated release, highest score
-  // first, with its own genre/decade/format filters — independent of the
+  // first, with its own genre/year/format filters — independent of the
   // Log tab's filter bar and sort order (a chart only ever ranks by rating).
   function getChartList() {
     // v27: a search box, so finding one artist in a long ranked chart
@@ -2721,9 +2723,10 @@
   // page's #release/{id} does that (see openReleaseModal).
   let activeTab = 'log';
   const TAB_HASH = { chart: '#chart', stats: '#stats' };
-  // v32: whether the Chart tab's year filter has had its once-per-load
-  // current-year default applied yet — see renderGenreFilters().
-  let chartYearDefaulted = false;
+  // v32/v33: whether the Log tab's and Chart tab's year filters have had
+  // their once-per-load current-year default applied yet — see
+  // renderGenreFilters().
+  let yearFilterDefaulted = false;
   function showTab(tab) {
     activeTab = tab;
     document.getElementById('tabLog').style.display = tab === 'log' ? '' : 'none';
@@ -2823,7 +2826,7 @@
   function esc(str) {
     if (!str) return '';
     // v24: coerce first — fillFilterSelect() now also calls this on the
-    // Chart tab's decade options, which are numbers, not strings.
+    // year filter options, which are numbers, not strings.
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
