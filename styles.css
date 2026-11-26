@@ -631,6 +631,21 @@ select option { background: var(--surface-2); }
 .view-toggle-btn:hover { color: var(--text); }
 .view-toggle-btn.active { background: var(--surface-2); color: var(--gold); }
 
+/* v27: "jump to month" — scrolls a long list straight to a month section
+   instead of relying on scrolling past the (now sticky) month headers. */
+.month-jump-select{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 11px;
+  padding: 6px 8px;
+  cursor: pointer;
+  max-width: 140px;
+}
+.month-jump-select:hover{ border-color: var(--border-hover); color: var(--text); }
+
 /* ---- v8: compact list view (single-column rows) ---- */
 .release-list.view-list {
   display: flex;
@@ -747,10 +762,39 @@ select option { background: var(--surface-2); }
   letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 8px 14px;
-  margin-bottom: 16px;
   cursor: pointer;
 }
 .page-back-btn:hover { color: var(--text); border-color: var(--border-hover); }
+
+/* v27: Back + Previous/Next, sharing one row above the detail page. */
+.page-nav-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.page-step-group{ display: flex; gap: 6px; }
+.page-step-btn{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.page-step-btn:hover{ color: var(--text); border-color: var(--border-hover); }
+.page-step-btn:disabled{ opacity: 0.35; cursor: default; }
+.page-step-btn:disabled:hover{ color: var(--text-muted); border-color: var(--border); }
 .modal-close {
   position: absolute;
   top: -12px;
@@ -1652,6 +1696,9 @@ select option { background: var(--surface-2); }
 .btn-action.danger.confirming{ border-color: var(--red); color: #fff; background: var(--red); }
 
 /* ---- v9: release-month section headers ---- */
+/* v27: sticky while its month's items scroll past, so a long list always
+   shows which month you're in — background matches the page so tiles
+   scrolling underneath don't show through the header text. */
 .month-header{
   grid-column: 1 / -1;
   display: flex;
@@ -1667,6 +1714,10 @@ select option { background: var(--surface-2); }
   border-bottom: 1px solid var(--border);
   margin-top: 14px;
   margin-bottom: 2px;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 5;
 }
 .release-list > .month-header:first-child{ margin-top: 0; }
 .month-count{

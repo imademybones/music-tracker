@@ -21,7 +21,7 @@
      URL from before the last deploy, alongside an already-fresh index.html,
      which is exactly the "CSS rules for a brand new class don't exist yet"
      bug this bump fixes. Bump ?v= whenever a deploy changes styles.css. -->
-<link rel="stylesheet" href="styles.css?v=27">
+<link rel="stylesheet" href="styles.css?v=28">
 </head>
 <body>
 
@@ -219,9 +219,15 @@
     </div>
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:6px;flex-wrap:wrap;">
-      <div class="view-toggle" id="viewToggle">
-        <button class="view-toggle-btn" data-mode="grid" onclick="setViewMode('grid')" title="Grid view" aria-label="Grid view">▦</button>
-        <button class="view-toggle-btn" data-mode="list" onclick="setViewMode('list')" title="List view" aria-label="List view">☰</button>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div class="view-toggle" id="viewToggle">
+          <button class="view-toggle-btn" data-mode="grid" onclick="setViewMode('grid')" title="Grid view" aria-label="Grid view">▦</button>
+          <button class="view-toggle-btn" data-mode="list" onclick="setViewMode('list')" title="List view" aria-label="List view">☰</button>
+        </div>
+        <!-- v27: populated by renderList() from the same month groups it renders. -->
+        <select class="month-jump-select" id="monthJumpSelect" onchange="jumpToMonth(this.value)" aria-label="Jump to month" style="display:none;">
+          <option value="">Jump to…</option>
+        </select>
       </div>
       <div style="display:flex;gap:6px;">
         <button class="btn-action" onclick="importData()" title="Import a backup JSON file">↑ Import</button>
@@ -291,7 +297,7 @@
     pickBestAlbum,
     pickTrackUris,
     chunkArray,
-  } from './lib/pure.js?v=27'; // v27: same cache-busting as styles.css above
+  } from './lib/pure.js?v=28'; // v28: same cache-busting as styles.css above
 
   // ── State ──────────────────────────────────────────
   // ---- v6: collapsible add-form ----
@@ -2007,6 +2013,26 @@
   // fade-in below should only ever play once per open, not on every one
   // of those, since renderModal() always rebuilds the DOM from scratch.
   let lastRenderedModalId = null;
+  // v27: the ordered id sequence Next/Previous on the release detail page
+  // steps through — the Chart tab's own ranking while that tab is active,
+  // otherwise the Log tab's current filtered/sorted/month-grouped order
+  // (also used when a release was reached from the Friday box, hero card,
+  // or a genre gallery, none of which have a more specific order of their
+  // own). Depends on groupByMonth/getChartList, both defined further down
+  // this script — fine, since this only ever runs after the whole module
+  // has finished evaluating once.
+  function currentBrowseOrder(){
+    if(activeTab === 'chart') return getChartList();
+    const sort = document.getElementById('sortBy').value;
+    return groupByMonth(getFiltered(), sort).flatMap(g => g.items);
+  }
+  function stepReleaseModal(delta){
+    const order = currentBrowseOrder();
+    const idx = order.findIndex(r => r.id === openModalId);
+    if(idx === -1) return;
+    const next = order[idx + delta];
+    if(next) openReleaseModal(next.id);
+  }
   function renderModal(){
     const slot = document.getElementById('modalSlot');
     if(!openModalId){ slot.innerHTML = ''; lastRenderedModalId = null; return; }
@@ -2014,12 +2040,25 @@
     if(!r){ openModalId = null; slot.innerHTML = ''; lastRenderedModalId = null; return; }
     const freshOpen = openModalId !== lastRenderedModalId;
     lastRenderedModalId = openModalId;
+    // v27: Previous/Next through whichever list this release is being
+    // browsed from (see currentBrowseOrder) — disabled past either end
+    // rather than wrapping around or hiding, so the position stays legible.
+    const order = currentBrowseOrder();
+    const idx = order.findIndex(x => x.id === openModalId);
+    const hasPrev = idx > 0;
+    const hasNext = idx !== -1 && idx < order.length - 1;
     // A full page, not a pop-up — no click-outside-to-dismiss (there's no
     // "outside" on a page), just the back button below.
     slot.innerHTML = `
       <div class="modal-overlay${freshOpen ? ' page-enter' : ''}">
         <div class="modal-shell">
-          <button class="page-back-btn" onclick="closeReleaseModal()">&larr; Back</button>
+          <div class="page-nav-row">
+            <button class="page-back-btn" onclick="closeReleaseModal()">&larr; Back</button>
+            <div class="page-step-group">
+              <button class="page-step-btn" onclick="stepReleaseModal(-1)" title="Previous" aria-label="Previous release" ${hasPrev ? '' : 'disabled'}>‹ Prev</button>
+              <button class="page-step-btn" onclick="stepReleaseModal(1)" title="Next" aria-label="Next release" ${hasNext ? '' : 'disabled'}>Next ›</button>
+            </div>
+          </div>
           <div class="modal-box">
             ${renderCardMarkup(r)}
           </div>
@@ -2169,6 +2208,23 @@
     return { key: `${y}-${String(m).padStart(2, '0')}`, label: `${MONTH_NAMES[m - 1]} ${y}`, order: y * 100 + m };
   }
 
+  // v27: extracted from renderList() so the release detail page's
+  // Next/Previous (currentBrowseOrder below) can flatten the exact same
+  // grouped order it renders, without duplicating the grouping logic.
+  function groupByMonth(list, sort){
+    const groups = new Map();
+    list.forEach(r => {
+      const g = releaseMonthGroup(r);
+      if(!groups.has(g.key)) groups.set(g.key, { key: g.key, label: g.label, order: g.order, items: [] });
+      groups.get(g.key).items.push(r);
+    });
+    return [...groups.values()].sort((a, b) => {
+      if(a.key === 'none') return 1;
+      if(b.key === 'none') return -1;
+      return sort === 'year-asc' ? a.order - b.order : b.order - a.order;
+    });
+  }
+
   function renderList() {
     const list = getFiltered();
     const container = document.getElementById('releaseList');
@@ -2184,6 +2240,7 @@
              <button class="btn-primary" onclick="startFirstAdd()">+ Add your first release</button>
            </div>`
         : `<div class="empty-state"><p>No matches.</p></div>`;
+      renderMonthJump([]);
       renderModal();
       return;
     }
@@ -2193,24 +2250,35 @@
     // newest-first, except on Release Date ↑ where they run oldest-first to
     // match. "No release date" always sits at the bottom.
     const sort = document.getElementById('sortBy').value;
-    const groups = new Map();
-    list.forEach(r => {
-      const g = releaseMonthGroup(r);
-      if(!groups.has(g.key)) groups.set(g.key, { key: g.key, label: g.label, order: g.order, items: [] });
-      groups.get(g.key).items.push(r);
-    });
-    const ordered = [...groups.values()].sort((a, b) => {
-      if(a.key === 'none') return 1;
-      if(b.key === 'none') return -1;
-      return sort === 'year-asc' ? a.order - b.order : b.order - a.order;
-    });
+    const ordered = groupByMonth(list, sort);
 
     const itemHtml = r => viewMode === 'list' ? renderListRow(r) : renderGridTile(r);
     container.innerHTML = ordered.map(g =>
-      `<div class="month-header"><span>${esc(g.label)}</span><span class="month-count">${g.items.length}</span></div>`
+      `<div class="month-header" id="month-${esc(g.key)}"><span>${esc(g.label)}</span><span class="month-count">${g.items.length}</span></div>`
       + g.items.map(itemHtml).join('')
     ).join('');
+    renderMonthJump(ordered);
     renderModal();
+  }
+
+  // v27: "jump to month" dropdown — built from the same month groups
+  // renderList() just laid out, so its options always match what's on
+  // screen. Hidden entirely when there's nothing to jump between.
+  function renderMonthJump(ordered){
+    const select = document.getElementById('monthJumpSelect');
+    if(!select) return;
+    if(ordered.length < 2){ select.style.display = 'none'; return; }
+    select.style.display = '';
+    select.innerHTML = '<option value="">Jump to…</option>'
+      + ordered.map(g => `<option value="${esc(g.key)}">${esc(g.label)} (${g.items.length})</option>`).join('');
+  }
+  function jumpToMonth(key){
+    if(!key) return;
+    const el = document.getElementById('month-' + key);
+    if(el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Reset to the placeholder so picking the same month again still fires
+    // a change event next time.
+    document.getElementById('monthJumpSelect').value = '';
   }
 
   // ── Chart (v24) ────────────────────────────────────
@@ -2603,8 +2671,8 @@
     addRevisit, applySpotifyResult, cancelEdit, clearArtistFilter, clearFilterChip, clearForm, clearPlaylistSelection, closeGenreGallery,
     createSpotifyPlaylist, editSpotifyClientId, filterByArtist, releaseItemClick, saveLogFilters, saveSpotifyClientId, selectAllShownForPlaylist, togglePlaylistPanel,
     closeReleaseModal, editRelease, exportData, hideOfflineBanner, importData,
-    openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, renderChart, renderList,
-    requestDeleteRelease, saveRelease, setFormRating, setViewMode, showTab, spotifySearch,
+    openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, jumpToMonth, renderChart, renderList,
+    requestDeleteRelease, saveRelease, setFormRating, setViewMode, showTab, spotifySearch, stepReleaseModal,
     startFirstAdd, surpriseMe, toggleAddForm, toggleFilterPanel, toggleListened, toggleOverflowMenu,
     updateFilterSummary, updateRatingInline,
   });
