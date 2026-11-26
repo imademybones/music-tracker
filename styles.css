@@ -1112,7 +1112,7 @@ select option { background: var(--surface-2); }
 .btn-action.danger:hover { border-color: var(--red); color: #c47272; }
 .btn-action.toggle-listened.active { border-color: var(--green); color: var(--green); }
 
-.revisit-btn {
+.listen-btn {
   background: none;
   border: 1px solid var(--border);
   border-radius: 2px;
@@ -1126,7 +1126,7 @@ select option { background: var(--surface-2); }
   white-space: nowrap;
 }
 
-.revisit-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+.listen-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
 
 /* WAVEFORM DIVIDER */
 .wave-divider {
@@ -1447,7 +1447,7 @@ select option { background: var(--surface-2); }
   .filter-bar input[type="text"] { max-width: 100%; }
 
   /* v19/v25: the detail page is where every release action lives (edit,
-     remove, mark listened, revisit, rate) — phones get bigger tap targets
+     remove, mark listened, log a listen, rate) — phones get bigger tap targets
      for all of them, same as the old bottom-sheet did. .modal-close here
      is the genre gallery's popup close button (see .page-back-btn for the
      release page's own back button, which doesn't need a mobile override). */
@@ -1458,7 +1458,7 @@ select option { background: var(--surface-2); }
   }
   .overflow-menu button { padding: 12px 12px; font-size: 13px; }
   .rating100.interactive input[type="range"] { min-width: 60px; }
-  /* v25: .card-side (rating slider + listened badge + revisit button) is
+  /* v25: .card-side (rating slider + listened badge + listen button) is
      ~160px+ wide — on a narrow phone that was squeezing .card-main down
      to almost nothing, wrapping the artist/title one word per line. Drop
      it onto its own full-width row below instead. */

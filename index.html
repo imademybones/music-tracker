@@ -21,7 +21,7 @@
      URL from before the last deploy, alongside an already-fresh index.html,
      which is exactly the "CSS rules for a brand new class don't exist yet"
      bug this bump fixes. Bump ?v= whenever a deploy changes styles.css. -->
-<link rel="stylesheet" href="styles.css?v=30">
+<link rel="stylesheet" href="styles.css?v=31">
 </head>
 <body>
 
@@ -216,7 +216,7 @@
         <option value="added-asc">Oldest Added</option>
         <option value="rating-desc">Highest Rated</option>
         <option value="artist-asc">Artist A–Z</option>
-        <option value="revisits-desc">Most Revisited</option>
+        <option value="listens-desc">Most Listened</option>
       </select>
     </div>
 
@@ -302,7 +302,7 @@
     chunkArray,
     releasesToCsv,
     releasesDueOn,
-  } from './lib/pure.js?v=30'; // v30: same cache-busting as styles.css above
+  } from './lib/pure.js?v=31'; // v31: same cache-busting as styles.css above
 
   // ── State ──────────────────────────────────────────
   // ---- v6: collapsible add-form ----
@@ -1350,7 +1350,7 @@
       if (sort === 'added-asc') return a.addedAt - b.addedAt;
       if (sort === 'rating-desc') return b.rating - a.rating;
       if (sort === 'artist-asc') return a.artist.localeCompare(b.artist);
-      if (sort === 'revisits-desc') return (b.revisits || 0) - (a.revisits || 0);
+      if (sort === 'listens-desc') return (b.revisits || 0) - (a.revisits || 0);
       if (sort === 'year-desc' || sort === 'year-asc') {
         const da = parseReleaseDate(a.year);
         const db = parseReleaseDate(b.year);
@@ -2212,7 +2212,7 @@
               ${interactiveRatingInput(r.id, r.rating)}
             </div>
             <span class="card-listened-badge ${badge.cls}">${badge.text}</span>
-            <button class="revisit-btn" onclick="addRevisit('${r.id}')" title="Log a revisit" aria-label="Log a revisit">↺ ${r.revisits || 0}</button>
+            <button class="listen-btn" onclick="addListen('${r.id}')" title="Log a listen" aria-label="Log a listen">✓ ${r.revisits || 0}</button>
           </div>
         </div>
         ${r.notes ? `<div class="card-notes">${esc(r.notes)}</div>` : ''}
@@ -2758,26 +2758,38 @@
     toastTimer = setTimeout(() => t.classList.remove('show'), duration);
   }
 
-  // ── Revisit ───────────────────────────────────────
-  async function addRevisit(id) {
+  // ── Listens ──────────────────────────────────────────
+  // v31: "Log a listen" — a simple tally you tap each time you've actually
+  // listened (manual, not scrobble-driven), unlimited taps per day. Still
+  // stored in the Airtable 'Revisits' field / r.revisits (renamed in the UI
+  // only, like the 'year' legacy-name field, to avoid an Airtable/Worker
+  // change). The first tap on a release also flips it to Listened, since a
+  // logged play implies it's no longer unlistened.
+  async function addListen(id) {
     const r = releases.find(x => x.id === id);
     if (!r) return;
     const newRevisits = (r.revisits || 0) + 1;
     const newUpdatedAt = Date.now();
+    const alsoMarkListened = !r.listened;
+    const fields = { 'Revisits': newRevisits, 'Updated At': newUpdatedAt };
+    if (alsoMarkListened) fields['Listened'] = true;
     try {
       await airtableRequest(API_URL, {
         method: 'PATCH',
-        body: JSON.stringify({ records: [{ id, fields: { 'Revisits': newRevisits, 'Updated At': newUpdatedAt } }] })
+        body: JSON.stringify({ records: [{ id, fields }] })
       });
       r.revisits = newRevisits;
       r.updatedAt = newUpdatedAt;
+      if (alsoMarkListened) r.listened = true;
     } catch (e) {
-      console.error('Revisit update failed:', e);
-      showToast('Could not log revisit — check your connection and try again.');
+      console.error('Listen update failed:', e);
+      showToast('Could not log listen — check your connection and try again.');
       return;
     }
+    if (alsoMarkListened) { renderFriday(); renderHero(); }
     renderList();
-    showToast('Revisit logged.');
+    updateHeaderStats();
+    showToast('Listen logged.');
   }
 
   // ── Util ───────────────────────────────────────────
@@ -2887,7 +2899,7 @@
   // attributes, which resolve identifiers against the global object —
   // so anything invoked that way has to be attached here explicitly.
   Object.assign(window, {
-    addRevisit, applySpotifyResult, cancelEdit, clearArtistFilter, clearFilterChip, clearForm, clearPlaylistSelection, closeGenreGallery,
+    addListen, applySpotifyResult, cancelEdit, clearArtistFilter, clearFilterChip, clearForm, clearPlaylistSelection, closeGenreGallery,
     createSpotifyPlaylist, editSpotifyClientId, filterByArtist, releaseItemClick, saveLogFilters, saveSpotifyClientId, selectAllShownForPlaylist, togglePlaylistPanel,
     closeReleaseModal, editRelease, exportCsv, exportData, hideOfflineBanner, importData,
     openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, jumpToMonth, renderChart, renderList,
