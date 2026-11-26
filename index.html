@@ -21,7 +21,7 @@
      URL from before the last deploy, alongside an already-fresh index.html,
      which is exactly the "CSS rules for a brand new class don't exist yet"
      bug this bump fixes. Bump ?v= whenever a deploy changes styles.css. -->
-<link rel="stylesheet" href="styles.css?v=31">
+<link rel="stylesheet" href="styles.css?v=34">
 </head>
 <body>
 
@@ -302,7 +302,7 @@
     chunkArray,
     releasesToCsv,
     releasesDueOn,
-  } from './lib/pure.js?v=31'; // v31: same cache-busting as styles.css above
+  } from './lib/pure.js?v=34'; // v34: same cache-busting as styles.css above
 
   // ── State ──────────────────────────────────────────
   // ---- v6: collapsible add-form ----
@@ -1480,6 +1480,16 @@
   // "open all in Spotify" button doesn't need to re-filter releases itself.
   let fridaySpotifyUrls = [];
 
+  // v34: a growing collection means a single Friday can list a couple dozen
+  // releases — collapse to a handful by default (with a "+N more" toggle)
+  // instead of the box pushing everything else down the page. Not persisted:
+  // starts collapsed again on every fresh load, whichever Friday it is.
+  const FRIDAY_COLLAPSED_COUNT = 6;
+  let fridayExpanded = false;
+  function toggleFridayExpanded(){
+    fridayExpanded = !fridayExpanded;
+    renderFriday();
+  }
   function renderFriday(){
     const slot = document.getElementById('fridaySlot');
     const friday = currentReleaseFriday();
@@ -1500,6 +1510,11 @@
     const playlistBtn = fridaySpotifyUrls.length
       ? `<button class="btn-ghost spotify-playlist-btn" onclick="openFridayInSpotify()" title="Open each album on Spotify to add it to a playlist">▶ Open all in Spotify</button>`
       : '';
+    const showAll = fridayExpanded || matches.length <= FRIDAY_COLLAPSED_COUNT;
+    const shown = showAll ? matches : matches.slice(0, FRIDAY_COLLAPSED_COUNT);
+    const toggleBtn = matches.length > FRIDAY_COLLAPSED_COUNT
+      ? `<button class="btn-ghost friday-toggle-btn" onclick="toggleFridayExpanded()">${showAll ? 'Show fewer' : `+${matches.length - FRIDAY_COLLAPSED_COUNT} more`}</button>`
+      : '';
     slot.innerHTML = `
       <div class="friday-box">
         <div class="friday-tag-row">
@@ -1507,7 +1522,7 @@
           ${playlistBtn}
         </div>
         <div class="friday-list">
-          ${matches.map(r => `
+          ${shown.map(r => `
             <div class="friday-item${r.listened ? ' is-listened' : ''}" tabindex="0" role="button" aria-label="Open ${esc(r.artist)}${r.title ? ' — ' + esc(r.title) : ''}${r.listened ? ' (listened)' : ''}" onclick="openReleaseModal('${r.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openReleaseModal('${r.id}');}">
               ${coverHtml(r, 'friday')}
               <div class="friday-item-text">
@@ -1518,6 +1533,7 @@
             </div>
           `).join('')}
         </div>
+        ${toggleBtn}
       </div>
     `;
   }
@@ -2934,7 +2950,7 @@
     closeReleaseModal, editRelease, exportCsv, exportData, hideOfflineBanner, importData,
     openArtworkModal, openFridayInSpotify, openGenreGallery, openReleaseModal, jumpToMonth, renderChart, renderList,
     requestDeleteRelease, saveRelease, setFormRating, setViewMode, setNotifyEnabled, notifyEnabled, showTab, spotifySearch, stepReleaseModal,
-    startFirstAdd, surpriseMe, toggleAddForm, toggleFilterPanel, toggleListened, toggleOverflowMenu,
+    startFirstAdd, surpriseMe, toggleAddForm, toggleFilterPanel, toggleFridayExpanded, toggleListened, toggleOverflowMenu,
     updateFilterSummary, updateRatingInline,
   });
 

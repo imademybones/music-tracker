@@ -914,6 +914,15 @@ select option { background: var(--surface-2); }
   color: var(--green);
 }
 .friday-list { display: flex; flex-direction: column; gap: 8px; }
+/* v34: "+N more" / "Show fewer" toggle under a capped Friday list */
+.friday-toggle-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  font-size: 11px;
+  padding: 7px 10px;
+  text-align: center;
+}
 .friday-item {
   display: flex;
   align-items: center;
@@ -1216,14 +1225,20 @@ select option { background: var(--surface-2); }
 }
 
 /* STATS PAGE */
+/* v34: flex-wrap instead of a grid — with an odd number of cards (5 by
+   default), CSS Grid's auto-fit keeps the same column-track count on every
+   row, so a lone trailing card just sits in the first track with empty
+   space beside it. Flex items grow independently per row, so a short last
+   row still fills the full width. */
 .stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 28px;
 }
 
 .stats-card {
+  flex: 1 1 160px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
